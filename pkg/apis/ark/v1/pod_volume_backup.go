@@ -72,6 +72,9 @@ type PodVolumeBackupStatus struct {
 	// Phase is the current state of the PodVolumeBackup.
 	Phase PodVolumeBackupPhase `json:"phase"`
 
+	// Progress shows the current progress copying data for the backup
+	Progress string `json:"progress"`
+
 	// Path is the full path within the controller pod being backed up.
 	Path string `json:"path"`
 

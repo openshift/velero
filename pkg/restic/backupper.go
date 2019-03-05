@@ -257,6 +257,9 @@ func newPodVolumeBackup(backup *velerov1api.Backup, pod *corev1api.Pod, volumeNa
 			BackupStorageLocation: backup.Spec.StorageLocation,
 			RepoIdentifier:        repoIdentifier,
 		},
+		Status: velerov1api.PodVolumeBackupStatus{
+			Progress: "0%",
+		},
 	}
 }
 

@@ -37,7 +37,6 @@ import (
 	informers "github.com/heptio/velero/pkg/generated/informers/externalversions/velero/v1"
 	listers "github.com/heptio/velero/pkg/generated/listers/velero/v1"
 	"github.com/heptio/velero/pkg/restic"
-	veleroexec "github.com/heptio/velero/pkg/util/exec"
 	"github.com/heptio/velero/pkg/util/filesystem"
 	"github.com/heptio/velero/pkg/util/kube"
 )
@@ -228,7 +227,7 @@ func (c *podVolumeBackupController) processBackup(req *velerov1api.PodVolumeBack
 
 	var stdout, stderr string
 
-	if stdout, stderr, err = veleroexec.RunCommand(resticCmd.Cmd()); err != nil {
+	if stdout, stderr, err = c.RunBackupCommand(resticCmd.Cmd(), req); err != nil {
 		log.WithError(errors.WithStack(err)).Errorf("Error running command=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
 		return c.fail(req, fmt.Sprintf("error running restic backup, stderr=%s: %s", stderr, err.Error()), log)
 	}
@@ -243,6 +242,7 @@ func (c *podVolumeBackupController) processBackup(req *velerov1api.PodVolumeBack
 	// update status to Completed with path & snapshot id
 	req, err = c.patchPodVolumeBackup(req, func(r *velerov1api.PodVolumeBackup) {
 		r.Status.Path = path
+		r.Status.Progress = "100%"
 		r.Status.SnapshotID = snapshotID
 		r.Status.Phase = velerov1api.PodVolumeBackupPhaseCompleted
 	})
