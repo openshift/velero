@@ -17,6 +17,7 @@ package restore
 
 import (
 	"encoding/json"
+	"strings"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/pkg/errors"
@@ -24,6 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+)
+
+var (
+	builderPrefix  = "builder"
+	defaultPrefix  = "default"
+	deployerPrefix = "deployer"
 )
 
 // mergeServiceAccount takes a backed up serviceaccount and merges attributes into the current in-cluster service account.
@@ -64,6 +71,10 @@ func mergeObjectReferenceSlices(first, second []corev1api.ObjectReference) []cor
 		var exists bool
 		for _, f := range first {
 			if s.Name == f.Name {
+				exists = true
+				break
+			}
+			if strings.HasPrefix(f.Name, builderPrefix) || strings.HasPrefix(f.Name, defaultPrefix) || strings.HasPrefix(f.Name, deployerPrefix) {
 				exists = true
 				break
 			}
