@@ -74,7 +74,7 @@ func mergeObjectReferenceSlices(first, second []corev1api.ObjectReference) []cor
 				exists = true
 				break
 			}
-			if strings.HasPrefix(f.Name, builderPrefix) || strings.HasPrefix(f.Name, defaultPrefix) || strings.HasPrefix(f.Name, deployerPrefix) {
+			if strings.HasPrefix(s.Name, builderPrefix) || strings.HasPrefix(s.Name, defaultPrefix) || strings.HasPrefix(s.Name, deployerPrefix) {
 				exists = true
 				break
 			}
@@ -92,6 +92,10 @@ func mergeLocalObjectReferenceSlices(first, second []corev1api.LocalObjectRefere
 		var exists bool
 		for _, f := range first {
 			if s.Name == f.Name {
+				exists = true
+				break
+			}
+			if strings.HasPrefix(s.Name, builderPrefix) || strings.HasPrefix(s.Name, defaultPrefix) || strings.HasPrefix(s.Name, deployerPrefix) {
 				exists = true
 				break
 			}
