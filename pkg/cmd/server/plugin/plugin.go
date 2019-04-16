@@ -53,7 +53,6 @@ func NewCommand(f client.Factory) *cobra.Command {
 				RegisterRestoreItemAction("velero.io/service", newServiceRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/serviceaccount", newServiceAccountRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/addPVCFromPod", newAddPVCFromPodRestoreItemAction).
-				RegisterRestoreItemAction("velero.io/addPVFromPVC", newAddPVFromPVCRestoreItemAction).
 				Serve()
 		},
 	}
