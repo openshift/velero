@@ -26,14 +26,15 @@ import (
 
 // Command represents a restic command.
 type Command struct {
-	Command        string
-	RepoIdentifier string
-	PasswordFile   string
-	CACertFile     string
-	Dir            string
-	Args           []string
-	ExtraFlags     []string
-	Env            []string
+	Command               string
+	RepoIdentifier        string
+	PasswordFile          string
+	CACertFile            string
+	Dir                   string
+	Args                  []string
+	ExtraFlags            []string
+	Env                   []string
+	InsecureSkipTLSVerify bool
 }
 
 func (c *Command) RepoName() string {
@@ -54,6 +55,9 @@ func (c *Command) StringSlice() []string {
 	}
 	if c.CACertFile != "" {
 		res = append(res, cacertFlag(c.CACertFile))
+	}
+	if c.InsecureSkipTLSVerify {
+		res = append(res, "--insecure-skip-tls-verify")
 	}
 
 	// If VELERO_SCRATCH_DIR is defined, put the restic cache within it. If not,

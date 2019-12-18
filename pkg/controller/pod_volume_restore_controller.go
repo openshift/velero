@@ -23,6 +23,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/pkg/errors"
@@ -371,6 +373,22 @@ func (c *podVolumeRestoreController) restorePodVolume(req *velerov1api.PodVolume
 		return c.failRestore(req, errors.Wrap(err, "error setting restic cmd env").Error(), log)
 	}
 	resticCmd.Env = env
+
+	if strings.HasPrefix(req.Spec.RepoIdentifier, "s3") {
+		storageLocation := &velerov1api.BackupStorageLocation{}
+		if err := c.kbClient.Get(context.Background(), client.ObjectKey{
+			Namespace: req.Namespace,
+			Name:      req.Spec.BackupStorageLocation,
+		}, storageLocation); err != nil {
+			log.WithError(err).Errorf("Error getting BackupStorageLocation %s", req.Spec.BackupStorageLocation)
+			return errors.WithStack(err)
+		}
+		insecureSkipTLSVerify, err := strconv.ParseBool(storageLocation.Spec.Config["insecureSkipTLSVerify"])
+		if err != nil {
+			insecureSkipTLSVerify = false
+		}
+		resticCmd.InsecureSkipTLSVerify = insecureSkipTLSVerify
+	}
 
 	var stdout, stderr string
 

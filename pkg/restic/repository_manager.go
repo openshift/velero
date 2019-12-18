@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -264,6 +266,21 @@ func (rm *repositoryManager) exec(cmd *Command, backupLocation string) error {
 		return err
 	}
 	cmd.Env = env
+
+	if strings.HasPrefix(cmd.RepoIdentifier, "s3") {
+		storageLocation := &velerov1api.BackupStorageLocation{}
+		if err := rm.kbClient.Get(context.Background(), kbclient.ObjectKey{
+			Namespace: rm.namespace,
+			Name:      backupLocation,
+		}, storageLocation); err != nil {
+			return err
+		}
+		insecureSkipTLSVerify, err := strconv.ParseBool(storageLocation.Spec.Config["insecureSkipTLSVerify"])
+		if err != nil {
+			insecureSkipTLSVerify = false
+		}
+		cmd.InsecureSkipTLSVerify = insecureSkipTLSVerify
+	}
 
 	stdout, stderr, err := veleroexec.RunCommand(cmd.Cmd())
 	rm.log.WithFields(logrus.Fields{
