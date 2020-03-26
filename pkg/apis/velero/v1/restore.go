@@ -253,6 +253,21 @@ type RestoreStatus struct {
 	// +nullable
 	CompletionTimestamp *metav1.Time `json:"completionTimestamp,omitempty"`
 
+	// PodVolumeRestoreErrors is a slice of all PodVolumeRestores
+	// with errors (errors encountered by restic when restoring a pod)
+	// (if applicable)
+	// +optional
+	// +nullable
+	PodVolumeRestoreErrors []v1.ObjectReference `json:"podVolumeRestoreErrors,omitempty"`
+
+	// PodVolumeRestoreVerifyErrors is a slice of all
+	// PodVolumeRestore errors from restore verification (errors
+	// encountered by restic when verifying a pod restore)
+	// (if applicable)
+	// +optional
+	// +nullable
+	PodVolumeRestoreVerifyErrors []v1.ObjectReference `json:"podVolumeRestoreVerifyErrors,omitempty"`
+
 	// Progress contains information about the restore's execution progress. Note
 	// that this information is best-effort only -- if Velero fails to update it
 	// during a restore for any reason, it may be inaccurate/stale.

@@ -1357,6 +1357,16 @@ func (in *RestoreStatus) DeepCopyInto(out *RestoreStatus) {
 		in, out := &in.CompletionTimestamp, &out.CompletionTimestamp
 		*out = (*in).DeepCopy()
 	}
+	if in.PodVolumeRestoreErrors != nil {
+		in, out := &in.PodVolumeRestoreErrors, &out.PodVolumeRestoreErrors
+		*out = make([]corev1.ObjectReference, len(*in))
+		copy(*out, *in)
+	}
+	if in.PodVolumeRestoreVerifyErrors != nil {
+		in, out := &in.PodVolumeRestoreVerifyErrors, &out.PodVolumeRestoreVerifyErrors
+		*out = make([]corev1.ObjectReference, len(*in))
+		copy(*out, *in)
+	}
 	if in.Progress != nil {
 		in, out := &in.Progress, &out.Progress
 		*out = new(RestoreProgress)
