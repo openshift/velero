@@ -39,14 +39,25 @@ func TestBackupCommand(t *testing.T) {
 }
 
 func TestRestoreCommand(t *testing.T) {
-	c := RestoreCommand("repo-id", "password-file", "snapshot-id", "target")
+	c := RestoreCommand("repo-id", "password-file", "snapshot-id", "target", false)
 
 	assert.Equal(t, "restore", c.Command)
 	assert.Equal(t, "repo-id", c.RepoIdentifier)
 	assert.Equal(t, "password-file", c.PasswordFile)
 	assert.Equal(t, "target", c.Dir)
 	assert.Equal(t, []string{"snapshot-id"}, c.Args)
-	assert.Equal(t, []string{"--target=.", "--skip-unchanged", "--delete"}, c.ExtraFlags)
+	assert.Equal(t, []string{"--target=.", "--delete", "--skip-unchanged"}, c.ExtraFlags)
+}
+
+func TestRestoreVerifyCommand(t *testing.T) {
+	c := RestoreCommand("repo-id", "password-file", "snapshot-id", "target", true)
+
+	assert.Equal(t, "restore", c.Command)
+	assert.Equal(t, "repo-id", c.RepoIdentifier)
+	assert.Equal(t, "password-file", c.PasswordFile)
+	assert.Equal(t, "target", c.Dir)
+	assert.Equal(t, []string{"snapshot-id"}, c.Args)
+	assert.Equal(t, []string{"--target=.", "--delete", "--verify"}, c.ExtraFlags)
 }
 
 func TestGetSnapshotCommand(t *testing.T) {

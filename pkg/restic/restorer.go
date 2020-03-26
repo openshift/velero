@@ -18,6 +18,8 @@ package restic
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -31,6 +33,8 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/label"
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 )
+
+const PvrErrAnnotationMaxLength = 200
 
 type RestoreData struct {
 	Restore                         *velerov1api.Restore
@@ -149,6 +153,11 @@ func (r *restorer) RestorePodVolumes(data RestoreData) []error {
 		numRestores++
 	}
 
+	pvrErrList := []string{}
+	pvrVerifyErrList := []string{}
+	pvrErrCount := 0
+	pvrVerifyErrCount := 0
+
 ForEachVolume:
 	for i := 0; i < numRestores; i++ {
 		select {
@@ -159,12 +168,51 @@ ForEachVolume:
 			if res.Status.Phase == velerov1api.PodVolumeRestorePhaseFailed {
 				errs = append(errs, errors.Errorf("pod volume restore failed: %s", res.Status.Message))
 			}
+			if res.Annotations != nil {
+				pvrErrorsStr := res.Annotations[PVRErrorsAnnotation]
+				pvrErrors, err := strconv.Atoi(pvrErrorsStr)
+				if err == nil && pvrErrors > 0 {
+					pvrErrCount++
+					if len(pvrErrList) < PvrErrAnnotationMaxLength {
+						pvrErrList = append(pvrErrList, (&corev1api.ObjectReference{
+							Kind:      "PodVolumeRestore",
+							Name:      res.Name,
+							Namespace: res.Namespace,
+						}).String())
+					}
+				}
+
+				pvrVerifyErrorsStr := res.Annotations[PVRVerifyErrorsAnnotation]
+				pvrVerifyErrors, err := strconv.Atoi(pvrVerifyErrorsStr)
+				if err == nil && pvrVerifyErrors > 0 {
+					pvrVerifyErrCount++
+					if len(pvrVerifyErrList) < PvrErrAnnotationMaxLength {
+						pvrVerifyErrList = append(pvrVerifyErrList, (&corev1api.ObjectReference{
+							Kind:      "PodVolumeRestore",
+							Name:      res.Name,
+							Namespace: res.Namespace,
+						}).String())
+					}
+				}
+			}
 		}
 	}
 
 	r.resultsLock.Lock()
 	delete(r.results, resultsKey(data.Pod.Namespace, data.Pod.Name))
 	r.resultsLock.Unlock()
+
+	if data.Restore.Annotations == nil && (pvrErrCount > 0 || pvrVerifyErrCount > 0) {
+		data.Restore.Annotations = make(map[string]string)
+	}
+	if pvrErrCount > 0 {
+		data.Restore.Annotations[RestorePVRErrorCountAnnotation] = strconv.FormatInt(int64(pvrErrCount), 10)
+		data.Restore.Annotations[RestorePVRErrorsAnnotation] = strings.Join(pvrErrList, ",")
+	}
+	if pvrVerifyErrCount > 0 {
+		data.Restore.Annotations[RestorePVRVerifyErrorCountAnnotation] = strconv.FormatInt(int64(pvrVerifyErrCount), 10)
+		data.Restore.Annotations[RestorePVRVerifyErrorsAnnotation] = strings.Join(pvrVerifyErrList, ",")
+	}
 
 	return errs
 }
