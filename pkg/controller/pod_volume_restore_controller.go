@@ -22,6 +22,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -237,11 +239,13 @@ func (c *PodVolumeRestoreReconciler) processRestore(ctx context.Context, req *ve
 	// ignore error since there's nothing we can do and it's a temp file.
 	defer os.Remove(credsFile)
 
+	verify := restic.GetVolumesToVerifyIncludes(pod, req.Spec.Volume)
 	resticCmd := restic.RestoreCommand(
 		req.Spec.RepoIdentifier,
 		credsFile,
 		req.Spec.SnapshotID,
 		volumePath,
+		verify,
 	)
 
 	backupLocation := &velerov1api.BackupStorageLocation{}
@@ -280,10 +284,15 @@ func (c *PodVolumeRestoreReconciler) processRestore(ctx context.Context, req *ve
 
 	var stdout, stderr string
 
-	if stdout, stderr, err = restic.RunRestore(resticCmd, log, c.updateRestoreProgressFunc(req, log)); err != nil {
+	stdout, stderr, err = restic.RunRestore(resticCmd, log, c.updateRestoreProgressFunc(req, log))
+	pvrErr := c.processRestoreErrors(ctx, req, stdout, stderr, verify, log)
+	if pvrErr != nil {
+		log.WithError(pvrErr).Error("error updating PodVolumeRestore errors")
+	}
+	if err != nil {
 		return errors.Wrapf(err, "error running restic restore, cmd=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
 	}
-	log.Debugf("Ran command=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
+	log.Infof("Ran command=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
 
 	// Remove the .velero directory from the restored volume (it may contain done files from previous restores
 	// of this volume, which we don't want to carry over). If this fails for any reason, log and continue, since
@@ -312,6 +321,43 @@ func (c *PodVolumeRestoreReconciler) processRestore(ctx context.Context, req *ve
 	// for this file to exist in each restored volume before completing.
 	if err := ioutil.WriteFile(filepath.Join(volumePath, ".velero", string(restoreUID)), nil, 0644); err != nil {
 		return errors.Wrap(err, "error writing done file")
+	}
+
+	return nil
+}
+
+func (c *PodVolumeRestoreReconciler) processRestoreErrors(
+	ctx context.Context,
+	req *velerov1api.PodVolumeRestore,
+	stdout, stderr string,
+	verify bool,
+	log logrus.FieldLogger) error {
+	nErrors := 0
+	nVerifyErrors := 0
+	for _, str := range strings.Split(stdout, "\n") {
+		var i int
+		_, err := fmt.Sscanf(str, "There were %d errors", &i)
+		if err == nil {
+			nErrors = i
+		}
+	}
+	if verify {
+		for _, str := range strings.Split(stderr, "\n") {
+			if strings.Contains(str, "Unexpected contents starting at offset") || strings.Contains(str, "Invalid file size: expected") {
+				nVerifyErrors++
+			}
+		}
+	}
+	original := req.DeepCopy()
+	if req.Annotations == nil {
+		req.Annotations = make(map[string]string)
+	}
+	req.Annotations[restic.PVRErrorsAnnotation] = strconv.FormatInt(int64(nErrors), 10)
+	req.Annotations[restic.PVRVerifyErrorsAnnotation] = strconv.FormatInt(int64(nVerifyErrors), 10)
+	req.Annotations[restic.PVRResticPodAnnotation] = os.Getenv("POD_NAME")
+	if err := c.Patch(ctx, req, client.MergeFrom(original)); err != nil {
+		log.WithError(err).Error("Unable to add restore errors")
+		return err
 	}
 
 	return nil
