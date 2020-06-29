@@ -1,0 +1,14 @@
+FROM registry.access.redhat.com/ubi8/go-toolset:1.14.7 AS builder
+ENV GOPATH=$APP_ROOT
+COPY . $APP_ROOT/src/github.com/vmware-tanzu/velero
+WORKDIR $APP_ROOT/src/github.com/vmware-tanzu/velero
+RUN CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -ldflags '-extldflags "-static"' -o $APP_ROOT/src/velero-restic-restore-helper github.com/vmware-tanzu/velero/cmd/velero-restic-restore-helper
+
+FROM registry.access.redhat.com/ubi8-minimal
+RUN microdnf -y update && microdnf clean all
+
+COPY --from=builder /opt/app-root/src/velero-restic-restore-helper velero-restic-restore-helper
+
+USER nobody:nobody
+
+ENTRYPOINT [ "/velero-restic-restore-helper" ]
