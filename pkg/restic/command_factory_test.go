@@ -46,7 +46,7 @@ func TestRestoreCommand(t *testing.T) {
 	assert.Equal(t, "password-file", c.PasswordFile)
 	assert.Equal(t, "target", c.Dir)
 	assert.Equal(t, []string{"snapshot-id"}, c.Args)
-	assert.Equal(t, []string{"--target=."}, c.ExtraFlags)
+	assert.Equal(t, []string{"--target=.", "--skip-unchanged", "--delete"}, c.ExtraFlags)
 }
 
 func TestGetSnapshotCommand(t *testing.T) {

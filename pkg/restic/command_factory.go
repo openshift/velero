@@ -54,7 +54,7 @@ func RestoreCommand(repoIdentifier, passwordFile, snapshotID, target string) *Co
 		PasswordFile:   passwordFile,
 		Dir:            target,
 		Args:           []string{snapshotID},
-		ExtraFlags:     []string{"--target=."},
+		ExtraFlags:     []string{"--target=.", "--skip-unchanged", "--delete"},
 	}
 }
 
