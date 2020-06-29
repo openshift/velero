@@ -1,0 +1,14 @@
+git checkout v1.6.0
+git checkout -b 1.6.0-rebase
+git cherry-pick b15d6bae5ab937f40efc3f5312c00cd1cf4e9e59 # Add UBI Dockerfiles for Konveyor
+git cherry-pick 391f9a646b3a881091e63234fea9646475de0bb3 # Add support for restic skip-unchanged
+git cherry-pick 53ef637b20362bc46abd6a70cd968d4c84b3034c # insecureSkipTLSVerify changes
+git cherry-pick e38a31d951fa35793aaa6e6b57dfcde71f8f5f33 # Added support for restic --verify flag
+# fix conflicts
+#  CONFLICT (content): Merge conflict in config/crd/crds/crds.go
+# "make update" for CRDs
+git cherry-pick e5c45325c7e32d4e5225680b74045360ce7b63aa # CVE-1869801 update aws-sdk-go to 1.34.11
+git cherry-pick b8e95a3be397a82f2ea7a560c0bfd2444a1dc960 # Add BZ automation to repo (#82)
+
+# new commit, Dockerfile.ubi "version bump for velero; update restic branch/build"
+# rebase log, "mod=mod" for restic, update to topic branch, velero version bump
