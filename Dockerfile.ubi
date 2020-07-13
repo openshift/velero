@@ -10,7 +10,7 @@ RUN mkdir /go/src/github.com/restic \
 && CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' ./cmd/restic
 
 FROM registry.access.redhat.com/ubi8-minimal
-RUN microdnf -y install nmap-ncat && microdnf clean all
+RUN microdnf -y install nmap-ncat procps-ng && microdnf clean all
 RUN microdnf -y update && microdnf clean all
 
 COPY --from=builder /go/src/github.com/vmware-tanzu/velero/velero velero
