@@ -8,7 +8,7 @@ require (
 	github.com/Azure/go-autorest/autorest/azure/auth v0.4.2
 	github.com/Azure/go-autorest/autorest/to v0.3.0
 	github.com/Azure/go-autorest/autorest/validation v0.2.0 // indirect
-	github.com/aws/aws-sdk-go v1.28.2
+	github.com/aws/aws-sdk-go v1.34.11
 	github.com/docker/spdystream v0.0.0-20170912183627-bc6354cbbc29 // indirect
 	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/fatih/color v1.10.0
