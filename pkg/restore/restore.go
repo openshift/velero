@@ -519,12 +519,15 @@ func getNamespace(logger logrus.FieldLogger, path, remappedName string) *v1.Name
 			},
 		}
 	}
+	// Delete openshift node-selector label
+	newAnnotations := backupNS.Annotations
+	delete(newAnnotations, "openshift.io/node-selector")
 
 	return &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        remappedName,
 			Labels:      backupNS.Labels,
-			Annotations: backupNS.Annotations,
+			Annotations: newAnnotations,
 		},
 		Spec: backupNS.Spec,
 	}
