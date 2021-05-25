@@ -19,6 +19,8 @@ package plugin
 import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+	"github.com/vmware-tanzu/velero/pkg/features"
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
@@ -79,7 +81,7 @@ func newServiceAccountBackupItemAction(f client.Factory) veleroplugin.HandlerIni
 			return nil, err
 		}
 
-		discoveryHelper, err := velerodiscovery.NewHelper(clientset.Discovery(), logger)
+		discoveryHelper, err := velerodiscovery.NewHelper(clientset.Discovery(), logger, features.IsEnabled(velerov1api.APIGroupVersionsFeatureFlag))
 		if err != nil {
 			return nil, err
 		}

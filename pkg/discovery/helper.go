@@ -22,16 +22,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	kcmdutil "github.com/vmware-tanzu/velero/third_party/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/restmapper"
-
-	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	"github.com/vmware-tanzu/velero/pkg/features"
-	kcmdutil "github.com/vmware-tanzu/velero/third_party/kubernetes/pkg/kubectl/cmd/util"
 )
 
 // Helper exposes functions for interacting with the Kubernetes discovery
@@ -60,6 +57,14 @@ type Helper interface {
 	// ServerVersion retrieves and parses the server's k8s version (git version)
 	// in the cluster.
 	ServerVersion() *version.Info
+
+	// SetShortcutExpanderFunc is used to set a customer shortcut expander. Once set
+	// the helper implementation is supposed to store this and invoke during Refresh as needed
+	SetShortcutExpanderFunc() error
+
+	// This function is not thread-safe, only meant for internal consumption for refresh function
+	// which is why it is unexported. It can be configured by SetShortcutExpanderFunc which is thread-safe.
+	shortcutExpander() (meta.RESTMapper, error)
 }
 
 type serverResourcesInterface interface {
@@ -71,8 +76,9 @@ type serverResourcesInterface interface {
 }
 
 type helper struct {
-	discoveryClient discovery.DiscoveryInterface
-	logger          logrus.FieldLogger
+	discoveryClient        discovery.DiscoveryInterface
+	logger                 logrus.FieldLogger
+	apiVersionsFeatureFlag bool
 
 	// lock guards mapper, resources and resourcesMap
 	lock          sync.RWMutex
@@ -82,14 +88,19 @@ type helper struct {
 	kindMap       map[schema.GroupVersionKind]metav1.APIResource
 	apiGroups     []metav1.APIGroup
 	serverVersion *version.Info
+
+	// this is needed so we can override the shortcut expander at
+	// compile time.
+	shortcutExpanderFunc func() (meta.RESTMapper, error)
 }
 
 var _ Helper = &helper{}
 
-func NewHelper(discoveryClient discovery.DiscoveryInterface, logger logrus.FieldLogger) (Helper, error) {
+func NewHelper(discoveryClient discovery.DiscoveryInterface, logger logrus.FieldLogger, apiVersionsFeatureFlag bool) (Helper, error) {
 	h := &helper{
-		discoveryClient: discoveryClient,
-		logger:          logger,
+		discoveryClient:        discoveryClient,
+		logger:                 logger,
+		apiVersionsFeatureFlag: apiVersionsFeatureFlag,
 	}
 	if err := h.Refresh(); err != nil {
 		return nil, err
@@ -98,9 +109,19 @@ func NewHelper(discoveryClient discovery.DiscoveryInterface, logger logrus.Field
 }
 
 func (h *helper) ResourceFor(input schema.GroupVersionResource) (schema.GroupVersionResource, metav1.APIResource, error) {
+	var err error
+	err = h.SetShortcutExpanderFunc()
+	if err != nil {
+		return schema.GroupVersionResource{}, metav1.APIResource{}, err
+	}
+
 	h.lock.RLock()
 	defer h.lock.RUnlock()
 
+	h.mapper, err = h.shortcutExpander()
+	if err != nil {
+		return schema.GroupVersionResource{}, metav1.APIResource{}, err
+	}
 	gvr, err := h.mapper.ResourceFor(input)
 	if err != nil {
 		return schema.GroupVersionResource{}, metav1.APIResource{}, err
@@ -115,9 +136,20 @@ func (h *helper) ResourceFor(input schema.GroupVersionResource) (schema.GroupVer
 }
 
 func (h *helper) KindFor(input schema.GroupVersionKind) (schema.GroupVersionResource, metav1.APIResource, error) {
+	var err error
+	h.SetShortcutExpanderFunc()
+	err = h.SetShortcutExpanderFunc()
+	if err != nil {
+		return schema.GroupVersionResource{}, metav1.APIResource{}, err
+	}
+
 	h.lock.RLock()
 	defer h.lock.RUnlock()
 
+	h.mapper, err = h.shortcutExpander()
+	if err != nil {
+		return schema.GroupVersionResource{}, metav1.APIResource{}, err
+	}
 	if resource, ok := h.kindMap[input]; ok {
 		return schema.GroupVersionResource{
 			Group:    resource.Group,
@@ -143,20 +175,15 @@ func (h *helper) Refresh() error {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
-	groupResources, err := restmapper.GetAPIGroupResources(h.discoveryClient)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
 	var serverResources []*metav1.APIResourceList
 
-	if features.IsEnabled(velerov1api.APIGroupVersionsFeatureFlag) {
+	if h.apiVersionsFeatureFlag {
 		// ServerGroupsAndResources returns all APIGroup and APIResouceList - not only preferred versions
 		_, serverAllResources, err := refreshServerGroupsAndResources(h.discoveryClient, h.logger)
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		h.logger.Infof("The '%s' feature flag was specified, using all API group versions.", velerov1api.APIGroupVersionsFeatureFlag)
+		h.logger.Infof("The '%s' feature flag was specified, using all API group versions.", h.apiVersionsFeatureFlag)
 		serverResources = serverAllResources
 	} else {
 		// ServerPreferredResources() returns only preferred APIGroup - this is the default since no feature flag has been passed
@@ -167,18 +194,14 @@ func (h *helper) Refresh() error {
 		serverResources = serverPreferredResources
 	}
 
+	// TODO: parameterize this but not needed immediately
 	h.resources = discovery.FilteredBy(
 		discovery.ResourcePredicateFunc(filterByVerbs),
 		serverResources,
 	)
 
+	// this mainly handles extensions/apps priority for deployments and like resources
 	sortResources(h.resources)
-
-	shortcutExpander, err := kcmdutil.NewShortcutExpander(restmapper.NewDiscoveryRESTMapper(groupResources), h.resources, h.logger)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	h.mapper = shortcutExpander
 
 	h.resourcesMap = make(map[schema.GroupVersionResource]metav1.APIResource)
 	h.kindMap = make(map[schema.GroupVersionKind]metav1.APIResource)
@@ -284,4 +307,31 @@ func (h *helper) ServerVersion() *version.Info {
 	h.lock.RLock()
 	defer h.lock.RUnlock()
 	return h.serverVersion
+}
+
+func (h *helper) Logger() logrus.FieldLogger {
+	h.lock.RLock()
+	defer h.lock.RUnlock()
+	return h.logger
+}
+
+func (h *helper) SetShortcutExpanderFunc() error {
+	h.lock.RLock()
+	defer h.lock.RUnlock()
+	groupResources, err := restmapper.GetAPIGroupResources(h.discoveryClient)
+	if err != nil {
+		return err
+	}
+
+	h.shortcutExpanderFunc = func() (meta.RESTMapper, error) {
+		return kcmdutil.NewShortcutExpander(restmapper.NewDiscoveryRESTMapper(groupResources), h.Resources(), h.logger)
+	}
+	return nil
+}
+
+func (h *helper) shortcutExpander() (meta.RESTMapper, error) {
+	if h.shortcutExpanderFunc == nil {
+		return nil, errors.Errorf("shortcutExpanderFunc is nil, use the SetShortcutExpanderFunc to use this method\n")
+	}
+	return h.shortcutExpanderFunc()
 }

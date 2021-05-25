@@ -386,7 +386,7 @@ func (s *server) namespaceExists(namespace string) error {
 // initDiscoveryHelper instantiates the server's discovery helper and spawns a
 // goroutine to call Refresh() every 5 minutes.
 func (s *server) initDiscoveryHelper() error {
-	discoveryHelper, err := velerodiscovery.NewHelper(s.discoveryClient, s.logger)
+	discoveryHelper, err := velerodiscovery.NewHelper(s.discoveryClient, s.logger, features.IsEnabled(velerov1api.APIGroupVersionsFeatureFlag))
 	if err != nil {
 		return err
 	}

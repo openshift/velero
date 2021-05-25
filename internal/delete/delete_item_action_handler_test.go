@@ -18,6 +18,7 @@ package delete
 
 import (
 	"context"
+	"github.com/vmware-tanzu/velero/pkg/features"
 	"io"
 	"sort"
 	"testing"
@@ -188,7 +189,7 @@ func newHarness(t *testing.T) *harness {
 	apiServer := test.NewAPIServer(t)
 	log := logrus.StandardLogger()
 
-	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log)
+	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log, features.IsEnabled(velerov1api.APIGroupVersionsFeatureFlag))
 	require.NoError(t, err)
 
 	return &harness{

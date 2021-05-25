@@ -176,7 +176,7 @@ func TestProcessBackupValidationFailures(t *testing.T) {
 			)
 
 			apiServer := velerotest.NewAPIServer(t)
-			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger)
+			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger, false)
 			require.NoError(t, err)
 
 			var fakeClient kbclient.Client
@@ -250,7 +250,7 @@ func TestBackupLocationLabel(t *testing.T) {
 			)
 
 			apiServer := velerotest.NewAPIServer(t)
-			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger)
+			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger, false)
 			require.NoError(t, err)
 
 			c := &backupController{
@@ -314,7 +314,7 @@ func TestDefaultBackupTTL(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 
 			apiServer := velerotest.NewAPIServer(t)
-			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger)
+			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger, false)
 			require.NoError(t, err)
 
 			c := &backupController{
@@ -802,7 +802,7 @@ func TestProcessBackupCompletions(t *testing.T) {
 				Platform:     "",
 			}
 
-			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger)
+			discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, logger, false)
 			require.NoError(t, err)
 
 			c := &backupController{

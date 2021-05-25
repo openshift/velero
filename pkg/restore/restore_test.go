@@ -2896,7 +2896,7 @@ func newHarness(t *testing.T) *harness {
 	apiServer := test.NewAPIServer(t)
 	log := logrus.StandardLogger()
 
-	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log)
+	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log, false)
 	require.NoError(t, err)
 
 	return &harness{
