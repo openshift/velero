@@ -208,6 +208,9 @@ func GetPodVolumesUsingRestic(pod *corev1api.Pod, defaultVolumesToRestic bool) [
 		if pv.ConfigMap != nil {
 			continue
 		}
+		if pv.Projected != nil {
+			continue
+		}
 		// don't backup volumes that are included in the exclude list.
 		if contains(volsToExclude, pv.Name) {
 			continue
