@@ -1,7 +1,8 @@
-FROM registry.access.redhat.com/ubi8/go-toolset:1.14.7 AS builder
+# TODO! Find a real ubi8 image for golang 1.16
+FROM quay.io/app-sre/boilerplate:image-v2.1.0 AS builder
 ENV GOPATH=$APP_ROOT
-COPY . $APP_ROOT/src/github.com/vmware-tanzu/velero
-WORKDIR $APP_ROOT/src/github.com/vmware-tanzu/velero
+COPY . /go/src/github.com/vmware-tanzu/velero
+WORKDIR /go/src/github.com/vmware-tanzu/velero
 RUN CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -ldflags '-extldflags "-static" -X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=konveyor-dev' -o $APP_ROOT/src/velero github.com/vmware-tanzu/velero/cmd/velero
 
 FROM registry.access.redhat.com/ubi8/go-toolset:1.14.7 AS restic-builder
@@ -14,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -ldflags '-extldflags "-static
 
 FROM registry.access.redhat.com/ubi8-minimal
 RUN microdnf -y update && microdnf -y install nmap-ncat && microdnf clean all
-COPY --from=builder /opt/app-root/src/velero velero
+COPY --from=builder /go/src/github.com/vmware-tanzu/velero velero
 COPY --from=restic-builder /opt/app-root/src/restic /usr/bin/restic
 
 USER nobody:nobody
