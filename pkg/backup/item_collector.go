@@ -302,7 +302,8 @@ func (r *itemCollector) getResourceItems(log logrus.FieldLogger, gv schema.Group
 			// If limit is positive, use a pager to split list over multiple requests
 			// Use Velero's dynamic list function instead of the default
 			listFunc := pager.SimplePageFunc(func(opts metav1.ListOptions) (runtime.Object, error) {
-				list, err := resourceClient.List(listOptions)
+				opts.LabelSelector = labelSelector
+				list, err := resourceClient.List(opts)
 				if err != nil {
 					return nil, err
 				}
