@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/go-toolset:1.14.7 AS builder
+FROM quay.io/konveyor/builder:latest AS builder
 ENV GOPATH=$APP_ROOT
 COPY . $APP_ROOT/src/github.com/vmware-tanzu/velero
 WORKDIR $APP_ROOT/src/github.com/vmware-tanzu/velero
