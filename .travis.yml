@@ -27,7 +27,7 @@ before_install:
 # Also use -v for downloads/builds to stop no output failures from lxd env buffering.
 before_script:
 - go mod vendor -v
-- git clone https://github.com/konveyor/restic -b konveyor-dev
+- git clone https://github.com/konveyor/restic -b ${TRAVIS_BRANCH}
 - pushd restic; go mod vendor -v; popd
 - sed -i 's|-mod=mod|-mod=vendor|g' ${DOCKERFILE1}
 - sed -i 's|-mod=mod|-mod=vendor|g' ${DOCKERFILE2}
@@ -35,7 +35,7 @@ before_script:
 - sed -i 's|go build|go build -v|g' ${DOCKERFILE2}
 - sed -i 's|^RUN mkdir -p \$APP_ROOT/src/github.com/restic \\$|COPY --chown=1001 restic/ $APP_ROOT/src/github.com/restic/restic|g' ${DOCKERFILE1}
 - sed -i 's|&& cd \$APP_ROOT/src/github.com/restic \\$||g' ${DOCKERFILE1}
-- sed -i 's|&& git clone https://github.com/konveyor/restic -b konveyor-dev$||g' ${DOCKERFILE1}
+- sed -i 's|&& git clone https://github.com/konveyor/restic -b .*$||g' ${DOCKERFILE1}
 
 script:
 - docker build -t ${IMAGE1}:${TAG}-${TRAVIS_ARCH} -f ${DOCKERFILE1} .
