@@ -393,14 +393,15 @@ func (c *podVolumeRestoreController) restorePodVolume(req *velerov1api.PodVolume
 
 	var stdout, stderr string
 
-	if stdout, stderr, err = restic.RunRestore(resticCmd, log, c.updateRestoreProgressFunc(req, log)); err != nil {
+	stdout, stderr, err = restic.RunRestore(resticCmd, log, c.updateRestoreProgressFunc(req, log))
+	pvrErr := c.processRestoreErrors(req, stdout, stderr, verify)
+	if pvrErr != nil {
+		log.WithError(pvrErr).Error("error updating PodVolumeRestore errors")
+	}
+	if err != nil {
 		return errors.Wrapf(err, "error running restic restore, cmd=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
 	}
 	log.Infof("Ran command=%s, stdout=%s, stderr=%s", resticCmd.String(), stdout, stderr)
-	err = c.processRestoreErrors(req, stdout, stderr, verify)
-	if err != nil {
-		log.WithError(err).Error("error updating PodVolumeRestore errors")
-	}
 
 	// Remove the .velero directory from the restored volume (it may contain done files from previous restores
 	// of this volume, which we don't want to carry over). If this fails for any reason, log and continue, since
