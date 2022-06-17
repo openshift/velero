@@ -27,7 +27,7 @@ before_install:
 # Also use -v for downloads/builds to stop no output failures from lxd env buffering.
 before_script:
 - go mod vendor -v
-- git clone https://github.com/konveyor/restic -b ${TRAVIS_BRANCH}
+- git clone https://github.com/konveyor/restic -b konveyor-0.13.1
 - pushd restic; go mod vendor -v; popd
 - sed -i 's|-mod=mod|-mod=vendor|g' ${DOCKERFILE1}
 - sed -i 's|-mod=mod|-mod=vendor|g' ${DOCKERFILE2}
