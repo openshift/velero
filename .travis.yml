@@ -12,7 +12,6 @@ env:
   - DOCKERFILE1: Dockerfile.ubi
   - DOCKERFILE2: Dockerfile-velero-restic-restore-helper.ubi
   - DOCKER_CLI_EXPERIMENTAL: enabled
-  - GOPROXY: https://goproxy.io,direct
 
 before_install:
 - |
