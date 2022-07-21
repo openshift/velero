@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vmware-tanzu/velero/pkg/datamover"
 	"io"
 	"io/ioutil"
 	"os"
@@ -69,7 +70,6 @@ import (
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 	"github.com/vmware-tanzu/velero/pkg/volume"
-
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -652,6 +652,15 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 				backupLog.Error(err)
 			}
 		}
+
+		//DataMover case
+		if datamover.DataMoverCase() {
+			err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
+			if err != nil {
+				backupLog.Error(err)
+			}
+		}
+
 		vsClassSet := sets.NewString()
 		for _, vsc := range volumeSnapshotContents {
 			// persist the volumesnapshotclasses referenced by vsc
