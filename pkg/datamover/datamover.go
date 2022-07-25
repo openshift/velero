@@ -98,8 +98,6 @@ func WaitForDataMoverBackupToComplete(backupName string) error {
 		return err
 	}
 
-	log.Info(fmt.Sprintf("List of all VSBs: %v", VSBList))
-
 	//Wait for all VSBs to complete
 	if len(VSBList.Items) > 0 {
 		err = CheckIfVolumeSnapshotBackupsAreComplete(context.Background(), VSBList)
