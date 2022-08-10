@@ -47,13 +47,15 @@ func GetVolumeSnapMoverClient() (kbclient.Client, error) {
 func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshotbackups snapmoverv1alpha1.VolumeSnapshotBackupList) error {
 	eg, _ := errgroup.WithContext(ctx)
 	// default timeout value is 10
-	timeoutValue := 10
+	timeoutValue := "10m"
 	// use timeout value if configured
 	if len(os.Getenv(DatamoverTimeout)) > 0 {
-		timeoutConfigured, _ := strconv.Atoi(os.Getenv(DatamoverTimeout))
-		timeoutValue = timeoutConfigured
+		timeoutValue = os.Getenv(DatamoverTimeout)
 	}
-	timeout := time.Duration(timeoutValue) * time.Minute
+	timeout, err := time.ParseDuration(timeoutValue)
+	if err != nil {
+		return errors.Wrapf(err, "error parsing the datamover timout")
+	}
 	interval := 5 * time.Second
 
 	volumeSnapMoverClient, err := GetVolumeSnapMoverClient()
