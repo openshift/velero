@@ -19,6 +19,7 @@ import (
 const (
 	// Env vars
 	VolumeSnapshotMoverEnv = "VOLUME_SNAPSHOT_MOVER"
+	DatamoverTimeout       = "DATAMOVER_TIMEOUT"
 )
 
 // We expect VolumeSnapshotMoverEnv to be set once when container is started.
@@ -45,8 +46,14 @@ func GetVolumeSnapMoverClient() (kbclient.Client, error) {
 
 func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshotbackups snapmoverv1alpha1.VolumeSnapshotBackupList) error {
 	eg, _ := errgroup.WithContext(ctx)
-	// update this to configurable timeout
-	timeout := 10 * time.Minute
+	// default timeout value is 10
+	timeoutValue := 10
+	// use timeout value if configured
+	if len(os.Getenv(DatamoverTimeout)) > 0 {
+		timeoutConfigured, _ := strconv.Atoi(os.Getenv(DatamoverTimeout))
+		timeoutValue = timeoutConfigured
+	}
+	timeout := time.Duration(timeoutValue) * time.Minute
 	interval := 5 * time.Second
 
 	volumeSnapMoverClient, err := GetVolumeSnapMoverClient()
