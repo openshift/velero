@@ -1434,6 +1434,14 @@ func isAlreadyExistsError(ctx *restoreContext, obj *unstructured.Unstructured, e
 	// If this is the case, the function returns true to avoid reporting error.
 	// Refer to https://github.com/vmware-tanzu/velero/issues/2308 for more details
 	if obj.GetKind() != "Service" {
+		if errGet != nil {
+			if apierrors.IsNotFound(errGet) {
+				ctx.log.Debugf("%s not found", kube.NamespaceAndName(obj))
+				return false, fromCluster, nil
+			}
+			ctx.log.Infof("Error retrieving cluster version of %s: %v", kube.NamespaceAndName(obj), err)
+			return false, fromCluster, errGet
+		}
 		return false, fromCluster, nil
 	}
 	statusErr, ok := err.(*apierrors.StatusError)
