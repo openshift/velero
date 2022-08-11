@@ -1255,19 +1255,17 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	var fromCluster *unstructured.Unstructured
 
 	if !isAlreadyExistsError {
+		// check for the existence of the object in cluster, if no error then it implies that object exists
+		// and if err then we want to fallthrough and do another get call later
 		fromCluster, err = resourceClient.Get(name, metav1.GetOptions{})
-		if !apierrors.IsNotFound(err) {
+		if err == nil {
 			objectExists = true
-		}
-
-		if err != nil && objectExists {
-			errs.Add(namespace, err)
-			return warnings, errs
 		}
 	}
 
 	if isAlreadyExistsError || objectExists {
-		// do a get call only if the prior one to check the object existence in cluster returned nil
+		// do a get call if we did not run this previously i.e.
+		// when we earlier ignored the error to check for the existence of obj in cluster, this time we will add the error as restore error
 		if fromCluster == nil {
 			fromCluster, err = resourceClient.Get(name, metav1.GetOptions{})
 			if err != nil {
