@@ -1244,18 +1244,13 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 
 	ctx.log.Infof("Attempting to restore %s: %v", obj.GroupVersionKind().Kind, name)
 	createdObj, restoreErr := resourceClient.Create(obj)
-	isAlreadyExistsError, err := isAlreadyExistsError(ctx, obj, restoreErr, resourceClient)
+	isAlreadyExistsError, fromCluster, err := isAlreadyExistsError(ctx, obj, restoreErr, resourceClient)
 	if err != nil {
 		errs.Add(namespace, err)
 		return warnings, errs
 	}
-	if isAlreadyExistsError {
-		fromCluster, err := resourceClient.Get(name, metav1.GetOptions{})
-		if err != nil {
-			ctx.log.Infof("Error retrieving cluster version of %s: %v", kube.NamespaceAndName(obj), err)
-			warnings.Add(namespace, err)
-			return warnings, errs
-		}
+
+	if isAlreadyExistsError  {
 		// Remove insubstantial metadata.
 		fromCluster, err = resetMetadataAndStatus(fromCluster)
 		if err != nil {
@@ -1417,43 +1412,52 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	return warnings, errs
 }
 
-func isAlreadyExistsError(ctx *restoreContext, obj *unstructured.Unstructured, err error, client client.Dynamic) (bool, error) {
+// isAlreadyExistsError returns
+// - bool: true if the error is an AlreadyExists error
+// - unstructured.Unstructured: the unstructured object that was already present in the cluster
+// - error: the error that was returned by the client
+func isAlreadyExistsError(ctx *restoreContext, obj *unstructured.Unstructured, err error, client client.Dynamic) (bool, *unstructured.Unstructured, error) {
 	if err == nil {
-		return false, nil
+		return false, nil, nil
 	}
-	if apierrors.IsAlreadyExists(err) {
-		return true, nil
+
+	fromCluster, errGet := client.Get(obj.GetName(), metav1.GetOptions{})
+	// if errGet == nil then we want to treat the error as a warning, in some cases the creation call might not get executed due to object API validations
+	// and Velero might not get the already exists error type but in reality the object already exists
+	if apierrors.IsAlreadyExists(err) || errGet == nil {
+		return true, fromCluster, nil
 	}
+	
 	// The "invalid value error" or "internal error" rather than "already exists" error returns when restoring nodePort service in the following two cases:
 	// 1. For NodePort service, the service has nodePort preservation while the same nodePort service already exists. - Get invalid value error
 	// 2. For LoadBalancer service, the "healthCheckNodePort" already exists. - Get internal error
 	// If this is the case, the function returns true to avoid reporting error.
 	// Refer to https://github.com/vmware-tanzu/velero/issues/2308 for more details
 	if obj.GetKind() != "Service" {
-		return false, nil
+		return false, fromCluster, nil
 	}
 	statusErr, ok := err.(*apierrors.StatusError)
 	if !ok || statusErr.Status().Details == nil || len(statusErr.Status().Details.Causes) == 0 {
-		return false, nil
+		return false, fromCluster, nil
 	}
 	// make sure all the causes are "port allocated" error
 	for _, cause := range statusErr.Status().Details.Causes {
 		if !strings.Contains(cause.Message, "provided port is already allocated") {
-			return false, nil
+			return false, fromCluster, nil
 		}
 	}
 
 	// the "already allocated" error may caused by other services, check whether the expected service exists or not
-	if _, err = client.Get(obj.GetName(), metav1.GetOptions{}); err != nil {
-		if apierrors.IsNotFound(err) {
+	if errGet != nil {
+		if apierrors.IsNotFound(errGet) {
 			ctx.log.Debugf("Service %s not found", kube.NamespaceAndName(obj))
-			return false, nil
+			return false, fromCluster, nil
 		}
-		return false, errors.Wrapf(err, "Unable to get the service %s while checking the NodePort is already allocated error", kube.NamespaceAndName(obj))
+		return false, fromCluster, errors.Wrapf(errGet, "Unable to get the service %s while checking the NodePort is already allocated error", kube.NamespaceAndName(obj))
 	}
 
 	ctx.log.Infof("Service %s exists, ignore the provided port is already allocated error", kube.NamespaceAndName(obj))
-	return true, nil
+	return true, fromCluster, nil
 }
 
 // shouldRenamePV returns a boolean indicating whether a persistent volume should
