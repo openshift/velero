@@ -1254,7 +1254,7 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	objectExists := false
 	var fromCluster *unstructured.Unstructured
 
-	if !isAlreadyExistsError {
+	if restoreErr != nil && !isAlreadyExistsError {
 		// check for the existence of the object in cluster, if no error then it implies that object exists
 		// and if err then we want to fallthrough and do another get call later
 		fromCluster, err = resourceClient.Get(name, metav1.GetOptions{})
@@ -2042,7 +2042,7 @@ func (ctx *restoreContext) processUpdateResourcePolicy(fromCluster, fromClusterW
 	// try patching the in-cluster resource (resource diff plus latest backup/restore labels)
 	_, err = resourceClient.Patch(obj.GetName(), patchBytes)
 	if err != nil {
-		ctx.log.Errorf("patch attempt failed for %s %s: %v", fromCluster.GroupVersionKind(), kube.NamespaceAndName(fromCluster), err)
+		ctx.log.Warnf("patch attempt failed for %s %s: %v", fromCluster.GroupVersionKind(), kube.NamespaceAndName(fromCluster), err)
 		warnings.Add(namespace, err)
 		// try just patching the labels
 		warningsFromUpdate, errsFromUpdate := ctx.updateBackupRestoreLabels(fromCluster, fromClusterWithLabels, namespace, resourceClient)
