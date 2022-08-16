@@ -3,17 +3,19 @@ package datamover
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/apex/log"
 	snapmoverv1alpha1 "github.com/konveyor/volume-snapshot-mover/api/v1alpha1"
 	"github.com/pkg/errors"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"golang.org/x/sync/errgroup"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"os"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"strconv"
-	"time"
 )
 
 const (
@@ -104,6 +106,34 @@ func WaitForDataMoverBackupToComplete(backupName string) error {
 		if err != nil {
 			log.Errorf("failed to wait for VolumeSnapshotBackups to be completed: %s", err.Error())
 			return err
+		}
+	}
+	return nil
+}
+
+func CheckIfVSBFailed(backupName string) error {
+	volumeSnapMoverClient, err := GetVolumeSnapMoverClient()
+	if err != nil {
+		log.Errorf(err.Error())
+		return err
+	}
+
+	VSBList := snapmoverv1alpha1.VolumeSnapshotBackupList{}
+	VSBListOptions := kbclient.MatchingLabels(map[string]string{
+		velerov1api.BackupNameLabel: backupName,
+	})
+
+	err = volumeSnapMoverClient.List(context.TODO(), &VSBList, VSBListOptions)
+	if err != nil {
+		log.Errorf(err.Error())
+		return err
+	}
+
+	for _, vsb := range VSBList.Items {
+		for _, cond := range vsb.Status.Conditions {
+			if cond.Status == metav1.ConditionFalse {
+				return errors.Errorf("volumesnapshotbackup %s has failed status", vsb.Name)
+			}
 		}
 	}
 	return nil

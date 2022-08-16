@@ -22,12 +22,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/vmware-tanzu/velero/pkg/datamover"
 	"io"
 	"io/ioutil"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/vmware-tanzu/velero/pkg/datamover"
 
 	"github.com/apex/log"
 	jsonpatch "github.com/evanphx/json-patch"
@@ -655,9 +656,17 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 
 		//DataMover case
 		if datamover.DataMoverCase() {
-			err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
+			err = datamover.CheckIfVSBFailed(backup.Name)
+
+			// first check for failed VSB
 			if err != nil {
 				backupLog.Error(err)
+
+			} else {
+				err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
+				if err != nil {
+					backupLog.Error(err)
+				}
 			}
 		}
 
