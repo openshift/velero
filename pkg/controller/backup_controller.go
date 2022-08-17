@@ -656,18 +656,12 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 
 		//DataMover case
 		if datamover.DataMoverCase() {
-			err = datamover.CheckIfVSBFailed(backup.Name)
 
-			// first check for failed VSB
+			err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
 			if err != nil {
 				backupLog.Error(err)
-
-			} else {
-				err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
-				if err != nil {
-					backupLog.Error(err)
-				}
 			}
+
 		}
 
 		vsClassSet := sets.NewString()

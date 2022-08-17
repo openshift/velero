@@ -65,6 +65,14 @@ func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshot
 				if err != nil {
 					return false, errors.Wrapf(err, fmt.Sprintf("failed to get volumesnapshotbackup %s/%s", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name))
 				}
+
+				// check for a failed VSB
+				for _, cond := range tmpVSB.Status.Conditions {
+					if cond.Status == metav1.ConditionFalse {
+						return false, errors.Errorf("volumesnapshotbackup %s has failed status", tmpVSB.Name)
+					}
+				}
+
 				if len(tmpVSB.Status.Phase) == 0 || tmpVSB.Status.Phase != snapmoverv1alpha1.SnapMoverBackupPhaseCompleted {
 					log.Infof("Waiting for volumesnapshotbackup to complete %s/%s. Retrying in %ds", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name, interval/time.Second)
 					return false, nil
@@ -104,36 +112,8 @@ func WaitForDataMoverBackupToComplete(backupName string) error {
 	if len(VSBList.Items) > 0 {
 		err = CheckIfVolumeSnapshotBackupsAreComplete(context.Background(), VSBList)
 		if err != nil {
-			log.Errorf("failed to wait for VolumeSnapshotBackups to be completed: %s", err.Error())
+			log.Errorf("volumeSnapshotBackup(s) failed to completed: %s", err.Error())
 			return err
-		}
-	}
-	return nil
-}
-
-func CheckIfVSBFailed(backupName string) error {
-	volumeSnapMoverClient, err := GetVolumeSnapMoverClient()
-	if err != nil {
-		log.Errorf(err.Error())
-		return err
-	}
-
-	VSBList := snapmoverv1alpha1.VolumeSnapshotBackupList{}
-	VSBListOptions := kbclient.MatchingLabels(map[string]string{
-		velerov1api.BackupNameLabel: backupName,
-	})
-
-	err = volumeSnapMoverClient.List(context.TODO(), &VSBList, VSBListOptions)
-	if err != nil {
-		log.Errorf(err.Error())
-		return err
-	}
-
-	for _, vsb := range VSBList.Items {
-		for _, cond := range vsb.Status.Conditions {
-			if cond.Status == metav1.ConditionFalse {
-				return errors.Errorf("volumesnapshotbackup %s has failed status", vsb.Name)
-			}
 		}
 	}
 	return nil
