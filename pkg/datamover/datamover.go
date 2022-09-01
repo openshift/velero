@@ -3,17 +3,18 @@ package datamover
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/apex/log"
 	snapmoverv1alpha1 "github.com/konveyor/volume-snapshot-mover/api/v1alpha1"
 	"github.com/pkg/errors"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"os"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"strconv"
-	"time"
 )
 
 const (
@@ -67,13 +68,13 @@ func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshot
 		volumesnapshotbackup := vsb
 		eg.Go(func() error {
 			err := wait.PollImmediate(interval, timeout, func() (bool, error) {
-				tmpVSB := snapmoverv1alpha1.VolumeSnapshotBackup{}
-				err := volumeSnapMoverClient.Get(ctx, kbclient.ObjectKey{Namespace: volumesnapshotbackup.Namespace, Name: volumesnapshotbackup.Name}, &tmpVSB)
+				currentVSB := snapmoverv1alpha1.VolumeSnapshotBackup{}
+				err := volumeSnapMoverClient.Get(ctx, kbclient.ObjectKey{Namespace: volumesnapshotbackup.Namespace, Name: volumesnapshotbackup.Name}, &currentVSB)
 				if err != nil {
 					return false, errors.Wrapf(err, fmt.Sprintf("failed to get volumesnapshotbackup %s/%s", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name))
 				}
-				if len(tmpVSB.Status.Phase) == 0 || tmpVSB.Status.Phase != snapmoverv1alpha1.SnapMoverBackupPhaseCompleted {
-					log.Infof("Waiting for volumesnapshotbackup to complete %s/%s. Retrying in %ds", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name, interval/time.Second)
+				if len(currentVSB.Status.Phase) == 0 || currentVSB.Status.Phase != snapmoverv1alpha1.SnapMoverBackupPhaseCompleted {
+					log.Infof("Waiting for volumesnapshotbackup status.phase to change from %s to complete %s/%s. Retrying in %ds", currentVSB.Status.Phase, volumesnapshotbackup.Namespace, volumesnapshotbackup.Name, interval/time.Second)
 					return false, nil
 				}
 
