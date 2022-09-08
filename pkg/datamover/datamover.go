@@ -24,6 +24,9 @@ const (
 	DatamoverTimeout       = "DATAMOVER_TIMEOUT"
 )
 
+const ReconciledReasonError = "Error"
+const ConditionReconciled = "Reconciled"
+
 // We expect VolumeSnapshotMoverEnv to be set once when container is started.
 // When true, we will use the csi data-mover code path.
 var dataMoverCase, _ = strconv.ParseBool(os.Getenv(VolumeSnapshotMoverEnv))
@@ -77,7 +80,7 @@ func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshot
 
 				// check for a failed VSB
 				for _, cond := range tmpVSB.Status.Conditions {
-					if cond.Status == metav1.ConditionFalse {
+					if cond.Status == metav1.ConditionFalse && cond.Reason == ReconciledReasonError && cond.Type == ConditionReconciled {
 						return false, errors.Errorf("volumesnapshotbackup %s has failed status", tmpVSB.Name)
 					}
 				}
