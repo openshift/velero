@@ -22,12 +22,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/vmware-tanzu/velero/pkg/datamover"
 	"io"
 	"io/ioutil"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/vmware-tanzu/velero/pkg/datamover"
 
 	"github.com/apex/log"
 	jsonpatch "github.com/evanphx/json-patch"
@@ -664,6 +665,12 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 		//DataMover case
 		if datamover.DataMoverCase() {
 			err = datamover.WaitForDataMoverBackupToComplete(backup.Name)
+			if err != nil {
+				backupLog.Error(err)
+			}
+
+			// delete temp VSClass created for data mover restore
+			err := datamover.DeleteTempVSClass(backup.Name, c.volumeSnapshotClassLister, c.volumeSnapshotClient)
 			if err != nil {
 				backupLog.Error(err)
 			}
