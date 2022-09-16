@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"golang.org/x/sync/errgroup"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -21,6 +22,8 @@ const (
 	// Env vars
 	VolumeSnapshotMoverEnv = "VOLUME_SNAPSHOT_MOVER"
 	DatamoverTimeout       = "DATAMOVER_TIMEOUT"
+	ReconciledReasonError  = "Error"
+	ConditionReconciled    = "Reconciled"
 )
 
 // We expect VolumeSnapshotMoverEnv to be set once when container is started.
@@ -73,11 +76,19 @@ func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshot
 				if err != nil {
 					return false, errors.Wrapf(err, fmt.Sprintf("failed to get volumesnapshotbackup %s/%s", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name))
 				}
+				// check for a failed VSB
+				for _, cond := range currentVSB.Status.Conditions {
+					if cond.Status == metav1.ConditionFalse && cond.Reason == ReconciledReasonError && cond.Type == ConditionReconciled {
+						return false, errors.Errorf("volumesnapshotbackup %s has failed status", currentVSB.Name)
+					}
+				}
+
 				if len(currentVSB.Status.Phase) == 0 || currentVSB.Status.Phase != snapmoverv1alpha1.SnapMoverBackupPhaseCompleted {
 					log.Infof("Waiting for volumesnapshotbackup status.phase to change from %s to complete %s/%s. Retrying in %ds", currentVSB.Status.Phase, volumesnapshotbackup.Namespace, volumesnapshotbackup.Name, interval/time.Second)
 					return false, nil
 				}
 
+				log.Infof("volumesnapshotbackup %s completed", volumesnapshotbackup.Name)
 				return true, nil
 			})
 			if err == wait.ErrWaitTimeout {
