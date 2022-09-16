@@ -89,7 +89,7 @@ func CheckIfVolumeSnapshotBackupsAreComplete(ctx context.Context, volumesnapshot
 					log.Infof("Waiting for volumesnapshotbackup to complete %s/%s. Retrying in %ds", volumesnapshotbackup.Namespace, volumesnapshotbackup.Name, interval/time.Second)
 					return false, nil
 				}
-
+				log.Infof("volumesnapshotbackup %s completed", volumesnapshotbackup.Name)
 				return true, nil
 			})
 			if err == wait.ErrWaitTimeout {
