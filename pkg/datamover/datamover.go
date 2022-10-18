@@ -136,7 +136,7 @@ func DeleteTempVSClass(backupName string, tempVS snapshotv1listers.VolumeSnapsho
 
 	tempVSClass, err := tempVS.Get(fmt.Sprintf("%s-snapclass", backupName))
 	if err != nil {
-		log.Errorf("failed to get temp vsClass %v", tempVSClass.Name)
+		log.Error("failed to get temp vsClass for vsb")
 		return err
 	}
 
