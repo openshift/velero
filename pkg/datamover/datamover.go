@@ -134,16 +134,20 @@ func WaitForDataMoverBackupToComplete(backupName string) error {
 
 func DeleteTempVSClass(backupName string, tempVS snapshotv1listers.VolumeSnapshotClassLister, client *snapshotterClientSet.Clientset) error {
 
+	tempVSClassName := fmt.Sprintf("%s-snapclass", backupName)
 	tempVSClass, err := tempVS.Get(fmt.Sprintf("%s-snapclass", backupName))
 	if err != nil {
-		log.Error("failed to get temp vsClass for vsb")
+		log.Errorf("failed to get temp vsClass %v", tempVSClassName)
 		return err
 	}
 
-	err = client.SnapshotV1().VolumeSnapshotClasses().Delete(context.TODO(), tempVSClass.Name, metav1.DeleteOptions{})
-	if err != nil {
-		log.Errorf("failed to delete temp vsClass %v", tempVSClass.Name)
-		return err
+	if tempVSClass != nil {
+		err = client.SnapshotV1().VolumeSnapshotClasses().Delete(context.TODO(), tempVSClass.Name, metav1.DeleteOptions{})
+		if err != nil {
+			log.Errorf("failed to delete temp vsClass %v", tempVSClass.Name)
+			return err
+		}
 	}
+
 	return nil
 }
