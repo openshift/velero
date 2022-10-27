@@ -14,7 +14,7 @@ import (
 	"github.com/pkg/errors"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"golang.org/x/sync/errgroup"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -141,7 +141,7 @@ func DeleteTempVSClass(backupName string, tempVS snapshotv1listers.VolumeSnapsho
 		// ignore is not found err as it is possible to create data mover
 		// backup without an existing PVC
 		// in which case this VSClass will not exist
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		log.Errorf("failed to get temp vsClass %v", tempVSClassName)
