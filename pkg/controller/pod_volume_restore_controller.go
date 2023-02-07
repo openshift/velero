@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -41,7 +42,6 @@ import (
 
 	"github.com/vmware-tanzu/velero/internal/credentials"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	"github.com/vmware-tanzu/velero/pkg/podvolumerestore"
 	"github.com/vmware-tanzu/velero/pkg/restic"
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/filesystem"
@@ -113,7 +113,7 @@ func (c *PodVolumeRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	if err = c.processRestore(ctx, pvr, pod, log); err != nil {
-		if e := podvolumerestore.UpdateStatusToFailed(c, ctx, pvr, err.Error(), c.clock.Now()); e != nil {
+		if e := UpdatePVRStatusToFailed(c, ctx, pvr, err.Error(), c.clock.Now()); e != nil {
 			log.WithError(err).Error("Unable to update status to failed")
 		}
 
@@ -130,6 +130,15 @@ func (c *PodVolumeRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	log.Info("Restore completed")
 	return ctrl.Result{}, nil
+}
+
+func UpdatePVRStatusToFailed(c client.Client, ctx context.Context, pvr *velerov1api.PodVolumeRestore, errString string, time time.Time) error {
+	original := pvr.DeepCopy()
+	pvr.Status.Phase = velerov1api.PodVolumeRestorePhaseFailed
+	pvr.Status.Message = errString
+	pvr.Status.CompletionTimestamp = &metav1.Time{Time: time}
+
+	return c.Patch(ctx, pvr, client.MergeFrom(original))
 }
 
 func (c *PodVolumeRestoreReconciler) shouldProcess(ctx context.Context, log logrus.FieldLogger, pvr *velerov1api.PodVolumeRestore) (bool, *corev1api.Pod, error) {
