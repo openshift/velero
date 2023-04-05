@@ -22,7 +22,7 @@ ci:
 	make -f $(MAKEFILE) verify all test
 
 .PHONY: verify
-verify: goimports code-generator controller-gen kubectl
+verify: goimports controller-gen kubectl #code-generator
 # add PROWBIN to PATH
 	@echo Verifying with PATH=$(PROWBIN):$(PATH)
 # Per
