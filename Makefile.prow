@@ -39,7 +39,7 @@ verify: goimports controller-gen kubectl #code-generator
 .PHONY: all
 all:
 	GOFLAGS=$(GOFLAGS) make local
-	GOFLAGS=$(GOFLAGS) BIN=velero-restic-restore-helper make local
+	GOFLAGS=$(GOFLAGS) BIN=velero-restore-helper make local
 
 .PHONY: test
 # our test is modified to avoid docker usage
