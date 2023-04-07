@@ -657,7 +657,7 @@ func (b *backupReconciler) runBackup(backup *pkgbackup.Request) error {
 		selector := label.NewSelectorForBackup(backup.Name)
 		vscList := &snapshotv1api.VolumeSnapshotContentList{}
 
-		volumeSnapshots, err = b.waitVolumeSnapshotReadyToUse(context.Background(), backup.Spec.CSISnapshotTimeout.Duration, backup.Name)
+		volumeSnapshots, err = waitVolumeSnapshotReadyToUse(context.Background(), backup.Spec.CSISnapshotTimeout.Duration, backup.Name, b.logger, b.volumeSnapshotLister, b.volumeSnapshotClient)
 		if err != nil {
 			backupLog.Errorf("fail to wait VolumeSnapshot change to Ready: %s", err.Error())
 		}
@@ -688,11 +688,6 @@ func (b *backupReconciler) runBackup(backup *pkgbackup.Request) error {
 			if err := csi.ResetVolumeSnapshotContent(&volumeSnapshotContents[index]); err != nil {
 				backupLog.Error(err)
 			}
-		}
-
-		// Delete the VolumeSnapshots created in the backup, when CSI feature is enabled.
-		if len(volumeSnapshots) > 0 && len(volumeSnapshotContents) > 0 {
-			b.deleteVolumeSnapshots(volumeSnapshots, volumeSnapshotContents, backupLog, b.maxConcurrentK8SConnections)
 		}
 	}
 
@@ -937,17 +932,17 @@ func closeAndRemoveFile(file *os.File, log logrus.FieldLogger) {
 // using goroutine here instead of waiting in CSI plugin, because it's not easy to make BackupItemAction
 // parallel by now. After BackupItemAction parallel is implemented, this logic should be moved to CSI plugin
 // as https://github.com/vmware-tanzu/velero-plugin-for-csi/pull/100
-func (b *backupReconciler) waitVolumeSnapshotReadyToUse(ctx context.Context,
-	csiSnapshotTimeout time.Duration, backupName string) ([]snapshotv1api.VolumeSnapshot, error) {
+func waitVolumeSnapshotReadyToUse(ctx context.Context,
+	csiSnapshotTimeout time.Duration, backupName string, logger logrus.FieldLogger, volumeSnapshotLister snapshotv1listers.VolumeSnapshotLister, volumeSnapshotClient snapshotterClientSet.Interface) ([]snapshotv1api.VolumeSnapshot, error) {
 	eg, _ := errgroup.WithContext(ctx)
 	timeout := csiSnapshotTimeout
 	interval := 5 * time.Second
 	volumeSnapshots := make([]snapshotv1api.VolumeSnapshot, 0)
 
-	if b.volumeSnapshotLister != nil {
-		tmpVSs, err := b.volumeSnapshotLister.List(label.NewSelectorForBackup(backupName))
+	if volumeSnapshotLister != nil {
+		tmpVSs, err := volumeSnapshotLister.List(label.NewSelectorForBackup(backupName))
 		if err != nil {
-			b.logger.Error(err)
+			logger.Error(err)
 			return volumeSnapshots, err
 		}
 		for _, vs := range tmpVSs {
@@ -962,22 +957,22 @@ func (b *backupReconciler) waitVolumeSnapshotReadyToUse(ctx context.Context,
 		volumeSnapshot := volumeSnapshots[index]
 		eg.Go(func() error {
 			err := wait.PollImmediate(interval, timeout, func() (bool, error) {
-				tmpVS, err := b.volumeSnapshotClient.SnapshotV1().VolumeSnapshots(volumeSnapshot.Namespace).Get(b.ctx, volumeSnapshot.Name, metav1.GetOptions{})
+				tmpVS, err := volumeSnapshotClient.SnapshotV1().VolumeSnapshots(volumeSnapshot.Namespace).Get(ctx, volumeSnapshot.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, errors.Wrapf(err, fmt.Sprintf("failed to get volumesnapshot %s/%s", volumeSnapshot.Namespace, volumeSnapshot.Name))
 				}
 				if tmpVS.Status == nil || tmpVS.Status.BoundVolumeSnapshotContentName == nil || !boolptr.IsSetToTrue(tmpVS.Status.ReadyToUse) {
-					b.logger.Infof("Waiting for CSI driver to reconcile volumesnapshot %s/%s. Retrying in %ds", volumeSnapshot.Namespace, volumeSnapshot.Name, interval/time.Second)
+					logger.Infof("Waiting for CSI driver to reconcile volumesnapshot %s/%s. Retrying in %ds", volumeSnapshot.Namespace, volumeSnapshot.Name, interval/time.Second)
 					return false, nil
 				}
 
-				b.logger.Debugf("VolumeSnapshot %s/%s turned into ReadyToUse.", volumeSnapshot.Namespace, volumeSnapshot.Name)
+				logger.Debugf("VolumeSnapshot %s/%s turned into ReadyToUse.", volumeSnapshot.Namespace, volumeSnapshot.Name)
 				// Put the ReadyToUse VolumeSnapshot element in the result channel.
 				vsChannel <- *tmpVS
 				return true, nil
 			})
 			if err == wait.ErrWaitTimeout {
-				b.logger.Errorf("Timed out awaiting reconciliation of volumesnapshot %s/%s", volumeSnapshot.Namespace, volumeSnapshot.Name)
+				logger.Errorf("Timed out awaiting reconciliation of volumesnapshot %s/%s", volumeSnapshot.Namespace, volumeSnapshot.Name)
 			}
 			return err
 		})
@@ -999,9 +994,9 @@ func (b *backupReconciler) waitVolumeSnapshotReadyToUse(ctx context.Context,
 // which will cause snapshot deletion on cloud provider, then backup cannot restore the PV.
 // If DeletionPolicy is Retain, just delete it. If DeletionPolicy is Delete, need to
 // change DeletionPolicy to Retain before deleting VS, then change DeletionPolicy back to Delete.
-func (b *backupReconciler) deleteVolumeSnapshots(volumeSnapshots []snapshotv1api.VolumeSnapshot,
+func deleteVolumeSnapshots(volumeSnapshots []snapshotv1api.VolumeSnapshot,
 	volumeSnapshotContents []snapshotv1api.VolumeSnapshotContent,
-	logger logrus.FieldLogger, maxConcurrent int) {
+	logger logrus.FieldLogger, maxConcurrent int, kbClient kbclient.Client, volumeSnapshotClient snapshotterClientSet.Interface, resourceTimeout time.Duration) {
 	var wg sync.WaitGroup
 	vscMap := make(map[string]snapshotv1api.VolumeSnapshotContent)
 	for _, vsc := range volumeSnapshotContents {
@@ -1024,7 +1019,7 @@ func (b *backupReconciler) deleteVolumeSnapshots(volumeSnapshots []snapshotv1api
 					wg.Done()
 					return
 				}
-				b.deleteVolumeSnapshot(vs, vscMap, logger)
+				deleteVolumeSnapshot(vs, vscMap, logger, kbClient, volumeSnapshotClient, resourceTimeout)
 			}
 		}()
 	}
@@ -1039,7 +1034,7 @@ func (b *backupReconciler) deleteVolumeSnapshots(volumeSnapshots []snapshotv1api
 
 // deleteVolumeSnapshot is called by deleteVolumeSnapshots and handles the single VolumeSnapshot
 // instance.
-func (b *backupReconciler) deleteVolumeSnapshot(vs snapshotv1api.VolumeSnapshot, vscMap map[string]snapshotv1api.VolumeSnapshotContent, logger logrus.FieldLogger) {
+func deleteVolumeSnapshot(vs snapshotv1api.VolumeSnapshot, vscMap map[string]snapshotv1api.VolumeSnapshotContent, logger logrus.FieldLogger, kbClient kbclient.Client, volumeSnapshotClient snapshotterClientSet.Interface, resourceTimeout time.Duration) {
 	var vsc snapshotv1api.VolumeSnapshotContent
 	modifyVSCFlag := false
 	if vs.Status != nil &&
@@ -1066,14 +1061,14 @@ func (b *backupReconciler) deleteVolumeSnapshot(vs snapshotv1api.VolumeSnapshot,
 		logger.Debugf("Patching VolumeSnapshotContent %s", vsc.Name)
 		original := vsc.DeepCopy()
 		vsc.Spec.DeletionPolicy = snapshotv1api.VolumeSnapshotContentRetain
-		if err := b.kbClient.Patch(context.Background(), &vsc, kbclient.MergeFrom(original)); err != nil {
+		if err := kbClient.Patch(context.Background(), &vsc, kbclient.MergeFrom(original)); err != nil {
 			logger.Errorf("fail to modify VolumeSnapshotContent %s DeletionPolicy to Retain: %s", vsc.Name, err.Error())
 			return
 		}
 
 		defer func() {
 			logger.Debugf("Start to recreate VolumeSnapshotContent %s", vsc.Name)
-			err := b.recreateVolumeSnapshotContent(vsc)
+			err := recreateVolumeSnapshotContent(vsc, resourceTimeout, kbClient)
 			if err != nil {
 				logger.Errorf("fail to recreate VolumeSnapshotContent %s: %s", vsc.Name, err.Error())
 			}
@@ -1082,7 +1077,7 @@ func (b *backupReconciler) deleteVolumeSnapshot(vs snapshotv1api.VolumeSnapshot,
 
 	// Delete VolumeSnapshot from cluster
 	logger.Debugf("Deleting VolumeSnapshot %s/%s", vs.Namespace, vs.Name)
-	err := b.volumeSnapshotClient.SnapshotV1().VolumeSnapshots(vs.Namespace).Delete(context.TODO(), vs.Name, metav1.DeleteOptions{})
+	err := volumeSnapshotClient.SnapshotV1().VolumeSnapshots(vs.Namespace).Delete(context.TODO(), vs.Name, metav1.DeleteOptions{})
 	if err != nil {
 		logger.Errorf("fail to delete VolumeSnapshot %s/%s: %s", vs.Namespace, vs.Name, err.Error())
 	}
@@ -1093,11 +1088,11 @@ func (b *backupReconciler) deleteVolumeSnapshot(vs snapshotv1api.VolumeSnapshot,
 // and Source. Source is updated to let csi-controller thinks the VSC is statically provsisioned with VS.
 // Set VolumeSnapshotRef's UID to nil will let the csi-controller finds out the related VS is gone, then
 // VSC can be deleted.
-func (b *backupReconciler) recreateVolumeSnapshotContent(vsc snapshotv1api.VolumeSnapshotContent) error {
-	timeout := b.resourceTimeout
+func recreateVolumeSnapshotContent(vsc snapshotv1api.VolumeSnapshotContent, resourceTimeout time.Duration, kbClient kbclient.Client) error {
+	timeout := resourceTimeout
 	interval := 1 * time.Second
 
-	err := b.kbClient.Delete(context.TODO(), &vsc)
+	err := kbClient.Delete(context.TODO(), &vsc)
 	if err != nil {
 		return errors.Wrapf(err, "fail to delete VolumeSnapshotContent: %s", vsc.Name)
 	}
@@ -1105,7 +1100,7 @@ func (b *backupReconciler) recreateVolumeSnapshotContent(vsc snapshotv1api.Volum
 	// Check VolumeSnapshotContents is already deleted, before re-creating it.
 	err = wait.PollImmediate(interval, timeout, func() (bool, error) {
 		tmpVSC := &snapshotv1api.VolumeSnapshotContent{}
-		err := b.kbClient.Get(context.TODO(), kbclient.ObjectKey{Name: vsc.Name}, tmpVSC)
+		err := kbClient.Get(context.TODO(), kbclient.ObjectKey{Name: vsc.Name}, tmpVSC)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return true, nil
@@ -1134,7 +1129,7 @@ func (b *backupReconciler) recreateVolumeSnapshotContent(vsc snapshotv1api.Volum
 	}
 	// ResourceVersion shouldn't exist for new creation.
 	vsc.ResourceVersion = ""
-	err = b.kbClient.Create(context.TODO(), &vsc)
+	err = kbClient.Create(context.TODO(), &vsc)
 	if err != nil {
 		return errors.Wrapf(err, "fail to create VolumeSnapshotContent %s", vsc.Name)
 	}
