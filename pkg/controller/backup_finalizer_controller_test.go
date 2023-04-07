@@ -23,6 +23,11 @@ import (
 	"testing"
 	"time"
 
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+	snapshotfake "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned/fake"
+	snapshotinformers "github.com/kubernetes-csi/external-snapshotter/client/v4/informers/externalversions"
+	snapshotv1listers "github.com/kubernetes-csi/external-snapshotter/client/v4/listers/volumesnapshot/v1"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -45,9 +50,10 @@ import (
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
 )
 
-func mockBackupFinalizerReconciler(fakeClient kbclient.Client, fakeClock *testclocks.FakeClock) (*backupFinalizerReconciler, *fakeBackupper) {
+func mockBackupFinalizerReconciler(fakectx context.Context, fakeClient kbclient.Client, fakeClock *testclocks.FakeClock, fakevolumeSnapshotLister snapshotv1listers.VolumeSnapshotLister, fakevolumeSnapshotClient snapshotterClientSet.Interface) (*backupFinalizerReconciler, *fakeBackupper) {
 	backupper := new(fakeBackupper)
 	return NewBackupFinalizerReconciler(
+		fakectx,
 		fakeClient,
 		fakeClock,
 		backupper,
@@ -56,6 +62,8 @@ func mockBackupFinalizerReconciler(fakeClient kbclient.Client, fakeClock *testcl
 		NewFakeSingleObjectBackupStoreGetter(backupStore),
 		logrus.StandardLogger(),
 		metrics.NewServerMetrics(),
+		fakevolumeSnapshotLister,
+		fakevolumeSnapshotClient,
 	), backupper
 }
 func TestBackupFinalizerReconcile(t *testing.T) {
@@ -160,7 +168,11 @@ func TestBackupFinalizerReconcile(t *testing.T) {
 			}
 
 			fakeClient := velerotest.NewFakeControllerRuntimeClient(t, initObjs...)
-			reconciler, backupper := mockBackupFinalizerReconciler(fakeClient, fakeClock)
+			vsClient := snapshotfake.NewSimpleClientset()
+			sharedInformers := snapshotinformers.NewSharedInformerFactory(vsClient, 0)
+			fakevolumeSnapshotLister := sharedInformers.Snapshot().V1().VolumeSnapshots().Lister()
+			fakevolumeSnapshotClient := vsClient
+			reconciler, backupper := mockBackupFinalizerReconciler(context.Background(), fakeClient, fakeClock, fakevolumeSnapshotLister, fakevolumeSnapshotClient)
 			pluginManager.On("CleanupClients").Return(nil)
 			backupStore.On("GetBackupItemOperations", test.backup.Name).Return(test.backupOperations, nil)
 			backupStore.On("GetBackupContents", mock.Anything).Return(ioutil.NopCloser(bytes.NewReader([]byte("hello world"))), nil)

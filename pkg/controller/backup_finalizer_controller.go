@@ -21,6 +21,9 @@ import (
 	"context"
 	"os"
 
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
+	snapshotv1listers "github.com/kubernetes-csi/external-snapshotter/client/v4/listers/volumesnapshot/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,6 +31,9 @@ import (
 	clocks "k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/vmware-tanzu/velero/pkg/features"
+	"github.com/vmware-tanzu/velero/pkg/label"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	pkgbackup "github.com/vmware-tanzu/velero/pkg/backup"
@@ -40,18 +46,22 @@ import (
 
 // backupFinalizerReconciler reconciles a Backup object
 type backupFinalizerReconciler struct {
-	client            kbclient.Client
-	clock             clocks.WithTickerAndDelayedExecution
-	backupper         pkgbackup.Backupper
-	newPluginManager  func(logrus.FieldLogger) clientmgmt.Manager
-	backupTracker     BackupTracker
-	metrics           *metrics.ServerMetrics
-	backupStoreGetter persistence.ObjectBackupStoreGetter
-	log               logrus.FieldLogger
+	ctx                  context.Context
+	client               kbclient.Client
+	clock                clocks.WithTickerAndDelayedExecution
+	backupper            pkgbackup.Backupper
+	newPluginManager     func(logrus.FieldLogger) clientmgmt.Manager
+	backupTracker        BackupTracker
+	metrics              *metrics.ServerMetrics
+	backupStoreGetter    persistence.ObjectBackupStoreGetter
+	log                  logrus.FieldLogger
+	volumeSnapshotLister snapshotv1listers.VolumeSnapshotLister
+	volumeSnapshotClient snapshotterClientSet.Interface
 }
 
 // NewBackupFinalizerReconciler initializes and returns backupFinalizerReconciler struct.
 func NewBackupFinalizerReconciler(
+	ctx context.Context,
 	client kbclient.Client,
 	clock clocks.WithTickerAndDelayedExecution,
 	backupper pkgbackup.Backupper,
@@ -60,16 +70,21 @@ func NewBackupFinalizerReconciler(
 	backupStoreGetter persistence.ObjectBackupStoreGetter,
 	log logrus.FieldLogger,
 	metrics *metrics.ServerMetrics,
+	volumeSnapshotLister snapshotv1listers.VolumeSnapshotLister,
+	volumeSnapshotClient snapshotterClientSet.Interface,
 ) *backupFinalizerReconciler {
 	return &backupFinalizerReconciler{
-		client:            client,
-		clock:             clock,
-		backupper:         backupper,
-		newPluginManager:  newPluginManager,
-		backupTracker:     backupTracker,
-		backupStoreGetter: backupStoreGetter,
-		log:               log,
-		metrics:           metrics,
+		ctx:                  ctx,
+		client:               client,
+		clock:                clock,
+		backupper:            backupper,
+		newPluginManager:     newPluginManager,
+		backupTracker:        backupTracker,
+		backupStoreGetter:    backupStoreGetter,
+		log:                  log,
+		metrics:              metrics,
+		volumeSnapshotLister: volumeSnapshotLister,
+		volumeSnapshotClient: volumeSnapshotClient,
 	}
 }
 
@@ -201,6 +216,35 @@ func (r *backupFinalizerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, errors.Wrap(err, "error uploading backup final contents")
 		}
 	}
+
+	//Defer Deleting CSI Snapshots
+	// Empty slices here so that they can be passed in to the persistBackup call later, regardless of whether or not CSI's enabled.
+	// This way, we only make the Lister call if the feature flag's on.
+	var volumeSnapshots []snapshotv1api.VolumeSnapshot
+	var volumeSnapshotContents []snapshotv1api.VolumeSnapshotContent
+	if features.IsEnabled(velerov1api.CSIFeatureFlag) {
+		selector := label.NewSelectorForBackup(backup.Name)
+		vscList := &snapshotv1api.VolumeSnapshotContentList{}
+
+		volumeSnapshots, err = waitVolumeSnapshotReadyToUse(context.Background(), backup.Spec.CSISnapshotTimeout.Duration, backup.Name, r.log, r.volumeSnapshotLister, r.volumeSnapshotClient)
+		if err != nil {
+			log.Errorf("fail to list VolumeSnapshots to be deleted: %s", err.Error())
+		}
+
+		err = r.client.List(context.Background(), vscList, &kbclient.ListOptions{LabelSelector: selector})
+		if err != nil {
+			log.Error(err)
+		}
+		if len(vscList.Items) >= 0 {
+			volumeSnapshotContents = vscList.Items
+		}
+
+		// Delete the VolumeSnapshots created in the backup, when CSI feature is enabled.
+		if len(volumeSnapshots) > 0 && len(volumeSnapshotContents) > 0 {
+			deleteVolumeSnapshots(volumeSnapshots, volumeSnapshotContents, log, 30, r.client, r.volumeSnapshotClient, 10)
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 

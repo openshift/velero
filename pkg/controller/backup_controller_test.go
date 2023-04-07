@@ -1462,7 +1462,7 @@ func TestDeleteVolumeSnapshots(t *testing.T) {
 			}
 			logger := logging.DefaultLogger(logrus.DebugLevel, logging.FormatText)
 
-			c.deleteVolumeSnapshots(tc.vsArray, tc.vscArray, logger, 30)
+			deleteVolumeSnapshots(tc.vsArray, tc.vscArray, logger, 30, c.kbClient, c.volumeSnapshotClient, 10)
 
 			vsList, err := c.volumeSnapshotClient.SnapshotV1().VolumeSnapshots("velero").List(context.TODO(), metav1.ListOptions{})
 			require.NoError(t, err)
