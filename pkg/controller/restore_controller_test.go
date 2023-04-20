@@ -32,9 +32,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/clock"
 	core "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/builder"
@@ -451,7 +451,7 @@ func TestProcessQueueItem(t *testing.T) {
 				formatFlag,
 			).(*restoreController)
 
-			c.clock = clock.NewFakeClock(now)
+			c.clock = k8sclocktesting.NewFakeClock(now)
 			if test.location != nil {
 				require.NoError(t, fakeClient.Create(context.Background(), test.location))
 			}

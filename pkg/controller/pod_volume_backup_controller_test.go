@@ -29,8 +29,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -109,7 +109,7 @@ var _ = Describe("PodVolumeBackup Reconciler", func() {
 			Expect(velerov1api.AddToScheme(scheme.Scheme)).To(Succeed())
 			r := PodVolumeBackupReconciler{
 				Client:         fakeClient,
-				Clock:          clock.NewFakeClock(now),
+				Clock:          k8sclocktesting.NewFakeClock(now),
 				Metrics:        metrics.NewResticServerMetrics(),
 				CredsFileStore: fakeCredsFileStore{},
 				NodeName:       "test_node",

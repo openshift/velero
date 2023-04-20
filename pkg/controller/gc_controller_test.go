@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/watch"
 	core "k8s.io/client-go/testing"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -153,7 +153,7 @@ func TestGCControllerHasUpdateFunc(t *testing.T) {
 
 func TestGCControllerProcessQueueItem(t *testing.T) {
 
-	fakeClock := clock.NewFakeClock(time.Now())
+	fakeClock := k8sclocktesting.NewFakeClock(time.Now())
 	defaultBackupLocation := builder.ForBackupStorageLocation("velero", "default").Result()
 
 	tests := []struct {

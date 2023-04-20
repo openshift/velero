@@ -36,8 +36,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/version"
+	"k8s.io/utils/clock"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -341,7 +342,7 @@ func TestDefaultBackupTTL(t *testing.T) {
 				kbClient:               fakeClient,
 				snapshotLocationLister: sharedInformers.Velero().V1().VolumeSnapshotLocations().Lister(),
 				defaultBackupTTL:       defaultBackupTTL.Duration,
-				clock:                  clock.NewFakeClock(now),
+				clock:                  k8sclocktesting.NewFakeClock(now),
 				formatFlag:             formatFlag,
 			}
 
@@ -836,7 +837,7 @@ func TestProcessBackupCompletions(t *testing.T) {
 				defaultVolumesToRestic: test.defaultVolumesToRestic,
 				backupTracker:          NewBackupTracker(),
 				metrics:                metrics.NewServerMetrics(),
-				clock:                  clock.NewFakeClock(now),
+				clock:                  k8sclocktesting.NewFakeClock(now),
 				newPluginManager:       func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
 				backupStoreGetter:      NewFakeSingleObjectBackupStoreGetter(backupStore),
 				backupper:              backupper,

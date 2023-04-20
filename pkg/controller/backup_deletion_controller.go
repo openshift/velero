@@ -28,8 +28,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/vmware-tanzu/velero/internal/delete"

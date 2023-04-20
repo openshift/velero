@@ -28,8 +28,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -68,7 +68,7 @@ var _ = Describe("Download Request Reconciler", func() {
 			Expect(err).To(BeNil())
 			now = now.Local()
 
-			rClock := clock.NewFakeClock(now)
+			rClock := k8sclocktesting.NewFakeClock(now)
 
 			const signedURLTTL = 10 * time.Minute
 

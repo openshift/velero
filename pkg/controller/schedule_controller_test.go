@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8sclocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -120,7 +120,7 @@ func TestReconcileOfSchedule(t *testing.T) {
 				testTime, err = time.Parse("2006-01-02 15:04:05", test.fakeClockTime)
 				require.NoError(t, err, "unable to parse test.fakeClockTime: %v", err)
 			}
-			reconciler.clock = clock.NewFakeClock(testTime)
+			reconciler.clock = k8sclocktesting.NewFakeClock(testTime)
 
 			if test.schedule != nil {
 				require.Nil(t, client.Create(ctx, test.schedule))
@@ -213,7 +213,7 @@ func TestGetNextRunTime(t *testing.T) {
 			cronSchedule, err := cron.Parse(test.schedule.Spec.Schedule)
 			require.NoError(t, err, "unable to parse test.schedule.Spec.Schedule: %v", err)
 
-			testClock := clock.NewFakeClock(time.Now())
+			testClock := k8sclocktesting.NewFakeClock(time.Now())
 
 			if test.lastRanOffset != "" {
 				offsetDuration, err := time.ParseDuration(test.lastRanOffset)
@@ -353,7 +353,7 @@ func TestGetBackup(t *testing.T) {
 			testTime, err := time.Parse("2006-01-02 15:04:05", test.testClockTime)
 			require.NoError(t, err, "unable to parse test.testClockTime: %v", err)
 
-			backup := getBackup(test.schedule, clock.NewFakeClock(testTime).Now())
+			backup := getBackup(test.schedule, k8sclocktesting.NewFakeClock(testTime).Now())
 
 			assert.Equal(t, test.expectedBackup.Namespace, backup.Namespace)
 			assert.Equal(t, test.expectedBackup.Name, backup.Name)
