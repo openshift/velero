@@ -64,6 +64,7 @@ func mockBackupFinalizerReconciler(fakectx context.Context, fakeClient kbclient.
 		metrics.NewServerMetrics(),
 		fakevolumeSnapshotLister,
 		fakevolumeSnapshotClient,
+		10*time.Minute,
 	), backupper
 }
 func TestBackupFinalizerReconcile(t *testing.T) {
