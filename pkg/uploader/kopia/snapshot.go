@@ -28,9 +28,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/vmware-tanzu/velero/pkg/kopia"
 	"github.com/vmware-tanzu/velero/pkg/repository/udmrepo"
 	"github.com/vmware-tanzu/velero/pkg/uploader"
-	"github.com/vmware-tanzu/velero/pkg/util/logging"
 
 	"github.com/kopia/kopia/fs"
 	"github.com/kopia/kopia/fs/localfs"
@@ -121,7 +121,7 @@ func Backup(ctx context.Context, fsUploader *snapshotfs.Uploader, repoWriter rep
 		return nil, false, errors.Wrap(err, "Unable to get local filesystem entry")
 	}
 
-	kopiaCtx := logging.SetupKopiaLog(ctx, log)
+	kopiaCtx := kopia.SetupKopiaLog(ctx, log)
 	snapID, snapshotSize, err := SnapshotSource(kopiaCtx, repoWriter, fsUploader, sourceInfo, rootDir, parentSnapshot, log, "Kopia Uploader")
 	if err != nil {
 		return nil, false, err
@@ -277,7 +277,7 @@ func findPreviousSnapshotManifest(ctx context.Context, rep repo.Repository, sour
 func Restore(ctx context.Context, rep repo.RepositoryWriter, progress *KopiaProgress, snapshotID, dest string, log logrus.FieldLogger, cancleCh chan struct{}) (int64, int32, error) {
 	log.Info("Start to restore...")
 
-	kopiaCtx := logging.SetupKopiaLog(ctx, log)
+	kopiaCtx := kopia.SetupKopiaLog(ctx, log)
 
 	rootEntry, err := snapshotfs.FilesystemEntryFromIDWithPath(kopiaCtx, rep, snapshotID, false)
 	if err != nil {
