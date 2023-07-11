@@ -35,7 +35,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/vmware-tanzu/velero/pkg/repository/udmrepo"
-	"github.com/vmware-tanzu/velero/pkg/util/logging"
+	"github.com/vmware-tanzu/velero/pkg/repository/udmrepo/kopialib/logging"
 )
 
 type kopiaRepoService struct {
