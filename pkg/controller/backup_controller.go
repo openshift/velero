@@ -675,9 +675,7 @@ func (b *backupReconciler) runBackup(backup *pkgbackup.Request) error {
 		if err != nil {
 			backupLog.Error(err)
 		}
-		if len(vscList.Items) >= 0 {
-			volumeSnapshotContents = vscList.Items
-		}
+		volumeSnapshotContents = vscList.Items
 
 		vsClassSet := sets.NewString()
 		for index := range volumeSnapshotContents {
