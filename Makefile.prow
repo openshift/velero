@@ -1,5 +1,5 @@
 # warning: verify this inside a container with following:
-# docker run -it --rm -v `pwd`:`pwd` -w `pwd` golang:1.18 bash -c "make -f Makefile.prow ci"
+# docker run -it --rm -v `pwd`:`pwd` -w `pwd` golang:1.19 bash -c "make -f Makefile.prow ci"
 # 
 # otherwise unintended system changes may include, replacing your currently installed kubectl, binaries in GOBIN, files in GOPATH/src
 # 
