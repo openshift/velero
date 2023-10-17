@@ -55,6 +55,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/util/kube"
 )
 
+// DNM - testing CI
 // BackupVersion is the current backup major version for Velero.
 // Deprecated, use BackupFormatVersion
 const BackupVersion = 1
