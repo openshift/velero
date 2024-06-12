@@ -240,7 +240,7 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Debug("Backup has in progress status from prior reconcile, marking it as failed")
 		failedCopy := original.DeepCopy()
 		failedCopy.Status.Phase = velerov1api.BackupPhaseFailed
-		failedCopy.Status.FailureReason = "Backup from previous reconcile still in progress"
+		failedCopy.Status.FailureReason = "Backup from previous reconcile still in progress. The API Server may have been down."
 		if err := kubeutil.PatchResource(original, failedCopy, b.kbClient); err != nil {
 			// return the error so the status can be re-processed; it's currently still not completed or failed
 			return ctrl.Result{}, err

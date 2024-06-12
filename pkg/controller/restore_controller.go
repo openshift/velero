@@ -216,7 +216,7 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.Debug("Restore has in progress status from prior reconcile, marking it as failed")
 		failedCopy := restore.DeepCopy()
 		failedCopy.Status.Phase = api.RestorePhaseFailed
-		failedCopy.Status.FailureReason = "Restore from previous reconcile still in progress"
+		failedCopy.Status.FailureReason = "Restore from previous reconcile still in progress. The API Server may have been down."
 		if err := kubeutil.PatchResource(restore, failedCopy, r.kbClient); err != nil {
 			// return the error so the status can be re-processed; it's currently still not completed or failed
 			return ctrl.Result{}, err
