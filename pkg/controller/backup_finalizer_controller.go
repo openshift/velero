@@ -207,6 +207,12 @@ func (r *backupFinalizerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, errors.Wrap(err, "error uploading backup final contents")
 		}
 	}
+	// Even though we already have patch in a defer call, we call it explicitly here so that
+	// if update fails, we can requeue. Prior return statements already requeue.
+	if err = r.client.Patch(ctx, backup, kbclient.MergeFrom(original)); err != nil {
+		log.WithError(err).Error("Error updating backup")
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
 }
 
