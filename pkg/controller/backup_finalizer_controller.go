@@ -106,15 +106,21 @@ func (r *backupFinalizerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	original := backup.DeepCopy()
+	patched := false
+	patchErr := false
 	defer func() {
-		switch backup.Status.Phase {
-		case velerov1api.BackupPhaseCompleted, velerov1api.BackupPhasePartiallyFailed, velerov1api.BackupPhaseFailed, velerov1api.BackupPhaseFailedValidation:
-			r.backupTracker.Delete(backup.Namespace, backup.Name)
-		}
 		// Always attempt to Patch the backup object and status after each reconciliation.
-		if err := r.client.Patch(ctx, backup, kbclient.MergeFrom(original)); err != nil {
-			log.WithError(err).Error("Error updating backup")
-			return
+		if !patched {
+			if err := r.client.Patch(ctx, backup, kbclient.MergeFrom(original)); err != nil {
+				log.WithError(err).Error("Error updating backup")
+				return
+			}
+		}
+		if !patchErr {
+			switch backup.Status.Phase {
+			case velerov1api.BackupPhaseCompleted, velerov1api.BackupPhasePartiallyFailed, velerov1api.BackupPhaseFailed, velerov1api.BackupPhaseFailedValidation:
+				r.backupTracker.Delete(backup.Namespace, backup.Name)
+			}
 		}
 	}()
 
@@ -209,8 +215,10 @@ func (r *backupFinalizerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	// Even though we already have patch in a defer call, we call it explicitly here so that
 	// if update fails, we can requeue. Prior return statements already requeue.
+	patched = true
 	if err = r.client.Patch(ctx, backup, kbclient.MergeFrom(original)); err != nil {
 		log.WithError(err).Error("Error updating backup")
+		patchErr = true
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
