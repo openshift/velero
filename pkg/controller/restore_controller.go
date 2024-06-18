@@ -215,6 +215,20 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	switch restore.Status.Phase {
 	case "", api.RestorePhaseNew:
 		// only process new restores
+	case api.RestorePhaseInProgress:
+		// if restore is in progress, we should not process it again
+		// we want to mark it as failed to avoid it being stuck in progress
+		// if so, mark it as failed, last loop did not successfully complete the restore
+		log.Debug("Restore has in progress status from prior reconcile, marking it as failed")
+		failedCopy := restore.DeepCopy()
+		failedCopy.Status.Phase = api.RestorePhaseFailed
+		failedCopy.Status.FailureReason = "Restore from previous reconcile still in progress. The API Server may have been down."
+		if err := kubeutil.PatchResource(restore, failedCopy, r.kbClient); err != nil {
+			// return the error so the status can be re-processed; it's currently still not completed or failed
+			return ctrl.Result{}, err
+		}
+		// patch to mark it as failed succeeded, do not requeue
+		return ctrl.Result{}, nil
 	default:
 		r.logger.WithFields(logrus.Fields{
 			"restore": kubeutil.NamespaceAndName(restore),
@@ -222,10 +236,7 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}).Debug("Restore is not handled")
 		return ctrl.Result{}, nil
 	}
-
-	// store a copy of the original restore for creating patch
 	original := restore.DeepCopy()
-
 	// Validate the restore and fetch the backup
 	info, resourceModifiers := r.validateAndComplete(restore)
 
@@ -278,8 +289,8 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err = kubeutil.PatchResource(original, restore, r.kbClient); err != nil {
 		log.WithError(errors.WithStack(err)).Info("Error updating restore's final status")
-		// No need to re-enqueue here, because restore's already set to InProgress before.
-		// Controller only handle New restore.
+		// return the error so the status can be re-processed; it's currently still not completed or failed
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
