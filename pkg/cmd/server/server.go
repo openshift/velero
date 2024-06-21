@@ -936,6 +936,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.logger,
 			s.logLevel,
 			newPluginManager,
+			controller.NewRestoreTracker(),
 			backupStoreGetter,
 			s.metrics,
 			s.config.formatFlag.Parse(),

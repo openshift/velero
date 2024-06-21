@@ -234,7 +234,11 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	case "", velerov1api.BackupPhaseNew:
 		// only process new backups
 	case velerov1api.BackupPhaseInProgress:
-		// if backup is in progress, we should not process it again
+		if b.backupTracker.Contains(original.Namespace, original.Name) {
+			log.Debug("Backup is in progress in another reconcile, skipping")
+			return ctrl.Result{}, nil
+		}
+		// if backup phase is in progress, we should not process it again
 		// we want to mark it as failed to avoid it being stuck in progress
 		// if so, mark it as failed, last loop did not successfully complete the backup
 		log.Debug("Backup has in progress status from prior reconcile, marking it as failed")
@@ -246,6 +250,7 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, err
 		}
 		// patch to mark it as failed succeeded, do not requeue
+		b.backupTracker.Delete(original.Namespace, original.Name)
 		return ctrl.Result{}, nil
 	default:
 		b.logger.WithFields(logrus.Fields{
@@ -266,6 +271,7 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// update status
 	if err := kubeutil.PatchResource(original, request.Backup, b.kbClient); err != nil {
+		// if we fail to patch to inprogress, we will try again in the next reconcile loop
 		return ctrl.Result{}, errors.Wrapf(err, "error updating Backup status to %s", request.Status.Phase)
 	}
 	// store ref to just-updated item for creating patch
@@ -323,6 +329,8 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log.Info("Updating backup's final status")
 	if err := kubeutil.PatchResource(original, request.Backup, b.kbClient); err != nil {
 		log.WithError(err).Error("error updating backup's final status")
+		// delete from tracker so next reconcile fails the backup
+		b.backupTracker.Delete(original.Namespace, original.Name)
 		// return the error so the status can be re-processed; it's currently still not completed or failed
 		return ctrl.Result{}, err
 	}
