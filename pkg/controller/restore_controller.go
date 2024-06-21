@@ -106,7 +106,7 @@ type restoreReconciler struct {
 
 	newPluginManager  func(logger logrus.FieldLogger) clientmgmt.Manager
 	backupStoreGetter persistence.ObjectBackupStoreGetter
-	restoreTracker    RestoreTracker
+	failingTracker    RestoreTracker
 }
 
 type backupInfo struct {
@@ -122,7 +122,6 @@ func NewRestoreReconciler(
 	logger logrus.FieldLogger,
 	restoreLogLevel logrus.Level,
 	newPluginManager func(logrus.FieldLogger) clientmgmt.Manager,
-	restoreTracker RestoreTracker,
 	backupStoreGetter persistence.ObjectBackupStoreGetter,
 	metrics *metrics.ServerMetrics,
 	logFormat logging.Format,
@@ -136,7 +135,7 @@ func NewRestoreReconciler(
 		kbClient:                    kbClient,
 		logger:                      logger,
 		restoreLogLevel:             restoreLogLevel,
-		restoreTracker:              restoreTracker,
+		failingTracker:              NewRestoreTracker(),
 		metrics:                     metrics,
 		logFormat:                   logFormat,
 		clock:                       &clock.RealClock{},
@@ -213,8 +212,8 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	case "", api.RestorePhaseNew:
 		// only process new restores
 	case api.RestorePhaseInProgress:
-		if r.restoreTracker.Contains(restore.Namespace, restore.Name) {
-			log.Debug("Restore has in progress in another reconcile, skipping")
+		if !r.failingTracker.Contains(restore.Namespace, restore.Name) {
+			log.Debug("Restore in progress, skipping")
 			return ctrl.Result{}, nil
 		}
 		// if restore is in progress, we should not process it again
@@ -229,7 +228,7 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 		// patch to mark it as failed succeeded, do not requeue
-		r.restoreTracker.Delete(restore.Namespace, restore.Name)
+		r.failingTracker.Delete(restore.Namespace, restore.Name)
 		return ctrl.Result{}, nil
 	default:
 		r.logger.WithFields(logrus.Fields{
@@ -274,14 +273,6 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	r.restoreTracker.Add(restore.Namespace, restore.Name)
-	defer func() {
-		switch restore.Status.Phase {
-		case api.RestorePhaseCompleted, api.RestorePhasePartiallyFailed, api.RestorePhaseFailed, api.RestorePhaseFailedValidation:
-			r.restoreTracker.Delete(restore.Namespace, restore.Name)
-		}
-	}()
-
 	if err := r.runValidatedRestore(restore, info, resourceModifiers); err != nil {
 		log.WithError(err).Debug("Restore failed")
 		restore.Status.Phase = api.RestorePhaseFailed
@@ -300,7 +291,7 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err = kubeutil.PatchResource(original, restore, r.kbClient); err != nil {
 		log.WithError(errors.WithStack(err)).Info("Error updating restore's final status")
 		// delete from tracker so next reconcile fails the restore
-		r.restoreTracker.Delete(restore.Namespace, restore.Name)
+		r.failingTracker.Add(restore.Namespace, restore.Name)
 		// return the error so the status can be re-processed; it's currently still not completed or failed
 		return ctrl.Result{}, err
 	}
