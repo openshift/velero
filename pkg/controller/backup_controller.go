@@ -235,7 +235,7 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// only process new backups
 	case velerov1api.BackupPhaseInProgress:
 		if b.backupTracker.Contains(original.Namespace, original.Name) {
-			log.Debug("Backup is in progress in another reconcile, skipping")
+			log.Debug("Backup is in progress, skipping")
 			return ctrl.Result{}, nil
 		}
 		// if backup phase is in progress, we should not process it again
@@ -250,7 +250,6 @@ func (b *backupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, err
 		}
 		// patch to mark it as failed succeeded, do not requeue
-		b.backupTracker.Delete(original.Namespace, original.Name)
 		return ctrl.Result{}, nil
 	default:
 		b.logger.WithFields(logrus.Fields{
