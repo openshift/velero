@@ -152,22 +152,22 @@ func TestProcessBackupNonProcessedItems(t *testing.T) {
 // OADP Carry: Test that backup that has status inProgress on reconcile is changed to failed if velero has no memory of it still in-progress.
 func TestProcessBackupInProgressFailOnSecondReconcile(t *testing.T) {
 	tests := []struct {
-		name   string
-		key    string
-		tracked bool
+		name            string
+		key             string
+		tracked         bool
 		reconciledPhase velerov1api.BackupPhase
-		expectedErr error
+		expectedErr     error
 	}{
 		{
-			name:   "InProgress backup tracked as being in-progress is not processed",
-			key:    "velero/backup-1",
-			tracked: true, 
+			name:            "InProgress backup tracked as being in-progress is not processed",
+			key:             "velero/backup-1",
+			tracked:         true,
 			reconciledPhase: velerov1api.BackupPhaseInProgress,
 		},
 		{
-			name:   "InProgress backup untracked as being in-progress is marked as failed",
-			key:    "velero/backup-1",
-			tracked: false,
+			name:            "InProgress backup untracked as being in-progress is marked as failed",
+			key:             "velero/backup-1",
+			tracked:         false,
 			reconciledPhase: velerov1api.BackupPhaseFailed,
 		},
 	}

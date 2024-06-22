@@ -925,21 +925,21 @@ func TestMostRecentCompletedBackup(t *testing.T) {
 // OADP Carry: Test that restore that has status inProgress on reconcile is changed to failed if velero has memory of it failing.
 func TestProcessRestoreInProgressFailOnSecondReconcile(t *testing.T) {
 	tests := []struct {
-		name   string
-		key    string
+		name            string
+		key             string
 		trackedAsFailed bool
 		reconciledPhase velerov1api.RestorePhase
-		expectedErr error
+		expectedErr     error
 	}{
 		{
-			name:   "InProgress restore not tracked as failing is not processed",
-			key:    "velero/restore-1",
-			trackedAsFailed: false, 
+			name:            "InProgress restore not tracked as failing is not processed",
+			key:             "velero/restore-1",
+			trackedAsFailed: false,
 			reconciledPhase: velerov1api.RestorePhaseInProgress,
 		},
 		{
-			name:   "InProgress restore tracked as failing is marked as failed",
-			key:    "velero/restore-1",
+			name:            "InProgress restore tracked as failing is marked as failed",
+			key:             "velero/restore-1",
 			trackedAsFailed: true,
 			reconciledPhase: velerov1api.RestorePhaseFailed,
 		},
@@ -951,7 +951,7 @@ func TestProcessRestoreInProgressFailOnSecondReconcile(t *testing.T) {
 			var (
 				logger = logging.DefaultLogger(logrus.DebugLevel, formatFlag)
 			)
-			restore :=	&velerov1api.Restore{
+			restore := &velerov1api.Restore{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: velerov1api.DefaultNamespace,
 					Name:      "restore-1",
@@ -961,8 +961,8 @@ func TestProcessRestoreInProgressFailOnSecondReconcile(t *testing.T) {
 				},
 			}
 			c := &restoreReconciler{
-				kbClient:      velerotest.NewFakeControllerRuntimeClient(t, restore),
-				logger:        logger,
+				kbClient:       velerotest.NewFakeControllerRuntimeClient(t, restore),
+				logger:         logger,
 				failingTracker: NewRestoreTracker(),
 			}
 			if test.trackedAsFailed {
