@@ -129,9 +129,10 @@ func TestProcessBackupNonProcessedItems(t *testing.T) {
 			)
 
 			c := &backupReconciler{
-				kbClient:   velerotest.NewFakeControllerRuntimeClient(t),
-				formatFlag: formatFlag,
-				logger:     logger,
+				kbClient:      velerotest.NewFakeControllerRuntimeClient(t),
+				formatFlag:    formatFlag,
+				logger:        logger,
+				backupTracker: NewBackupTracker(),
 			}
 			if test.backup != nil {
 				require.NoError(t, c.kbClient.Create(context.Background(), test.backup))
