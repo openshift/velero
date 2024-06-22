@@ -290,7 +290,7 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err = kubeutil.PatchResource(original, restore, r.kbClient); err != nil {
 		log.WithError(errors.WithStack(err)).Info("Error updating restore's final status")
-		// delete from tracker so next reconcile fails the restore
+		// add to failureTracker so next reconcile fails the restore
 		r.failingTracker.Add(restore.Namespace, restore.Name)
 		// return the error so the status can be re-processed; it's currently still not completed or failed
 		return ctrl.Result{}, err
