@@ -922,6 +922,62 @@ func TestMostRecentCompletedBackup(t *testing.T) {
 	assert.Equal(t, expected, mostRecentCompletedBackup(backups))
 }
 
+// OADP Carry: Test that restore that has status inProgress on reconcile is changed to failed if velero has memory of it failing.
+func TestProcessRestoreInProgressFailOnSecondReconcile(t *testing.T) {
+	tests := []struct {
+		name   string
+		key    string
+		trackedAsFailed bool
+		reconciledPhase velerov1api.RestorePhase
+		expectedErr error
+	}{
+		{
+			name:   "InProgress restore not tracked as failing is not processed",
+			key:    "velero/restore-1",
+			trackedAsFailed: false, 
+			reconciledPhase: velerov1api.RestorePhaseInProgress,
+		},
+		{
+			name:   "InProgress restore tracked as failing is marked as failed",
+			key:    "velero/restore-1",
+			trackedAsFailed: true,
+			reconciledPhase: velerov1api.RestorePhaseFailed,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			formatFlag := logging.FormatText
+			var (
+				logger = logging.DefaultLogger(logrus.DebugLevel, formatFlag)
+			)
+			restore :=	&velerov1api.Restore{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: velerov1api.DefaultNamespace,
+					Name:      "restore-1",
+				},
+				Status: velerov1api.RestoreStatus{
+					Phase: velerov1api.RestorePhaseInProgress,
+				},
+			}
+			c := &restoreReconciler{
+				kbClient:      velerotest.NewFakeControllerRuntimeClient(t, restore),
+				logger:        logger,
+				failingTracker: NewRestoreTracker(),
+			}
+			if test.trackedAsFailed {
+				c.failingTracker.Add(restore.Namespace, restore.Name)
+			}
+			_, err := c.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: restore.Namespace, Name: restore.Name}})
+			assert.Equal(t, test.expectedErr, err)
+			reconciledRestore := velerov1api.Restore{}
+			err = c.kbClient.Get(context.Background(), types.NamespacedName{Namespace: restore.Namespace, Name: restore.Name}, &reconciledRestore)
+			assert.Nil(t, err)
+			assert.Equal(t, test.reconciledPhase, reconciledRestore.Status.Phase)
+		})
+	}
+}
+
 func NewRestore(ns, name, backup, includeNS, includeResource string, phase velerov1api.RestorePhase) *builder.RestoreBuilder {
 	restore := builder.ForRestore(ns, name).Phase(phase).Backup(backup).ItemOperationTimeout(60 * time.Minute)
 
