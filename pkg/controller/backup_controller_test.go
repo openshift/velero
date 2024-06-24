@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 	"k8s.io/utils/clock"
 	testclocks "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
@@ -63,6 +65,7 @@ import (
 	pluginmocks "github.com/vmware-tanzu/velero/pkg/plugin/mocks"
 	biav2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/backupitemaction/v2"
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
+	velerotestmocks "github.com/vmware-tanzu/velero/pkg/test/mocks"
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 )
@@ -153,22 +156,27 @@ func TestProcessBackupNonProcessedItems(t *testing.T) {
 func TestProcessBackupInProgressFailOnSecondReconcile(t *testing.T) {
 	tests := []struct {
 		name            string
-		key             string
 		tracked         bool
 		reconciledPhase velerov1api.BackupPhase
 		expectedErr     error
+		mockFailedPatch bool
 	}{
 		{
 			name:            "InProgress backup tracked as being in-progress is not processed",
-			key:             "velero/backup-1",
 			tracked:         true,
 			reconciledPhase: velerov1api.BackupPhaseInProgress,
 		},
 		{
 			name:            "InProgress backup untracked as being in-progress is marked as failed",
-			key:             "velero/backup-1",
 			tracked:         false,
 			reconciledPhase: velerov1api.BackupPhaseFailed,
+		},
+		{
+			name:            "InProgress backup untracked is marked as failed, if patch fails, err is returned from reconcile to retry patch again, backup still inprogress",
+			tracked:         false,
+			reconciledPhase: velerov1api.BackupPhaseInProgress,
+			mockFailedPatch: true,
+			expectedErr:     syscall.ECONNREFUSED,
 		},
 	}
 
@@ -179,8 +187,20 @@ func TestProcessBackupInProgressFailOnSecondReconcile(t *testing.T) {
 				logger = logging.DefaultLogger(logrus.DebugLevel, formatFlag)
 			)
 			backup := defaultBackup().Phase(velerov1api.BackupPhaseInProgress).Result()
+			var kclient kbclient.Client
+			fakeKclient := velerotest.NewFakeControllerRuntimeClient(t, backup)
+			if test.mockFailedPatch {
+				mockClient := velerotestmocks.NewClient(t)
+				mockClient.On("Patch", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(syscall.ECONNREFUSED).Once()
+				mockClient.On("Get", mock.Anything, mock.AnythingOfType("types.NamespacedName"), mock.AnythingOfType("*v1.Backup")).Return(func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+					return fakeKclient.Get(ctx, key, obj)
+				})
+				kclient = mockClient
+			} else {
+				kclient = fakeKclient
+			}
 			c := &backupReconciler{
-				kbClient:      velerotest.NewFakeControllerRuntimeClient(t, backup),
+				kbClient:      kclient,
 				formatFlag:    formatFlag,
 				logger:        logger,
 				backupTracker: NewBackupTracker(),
