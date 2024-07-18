@@ -24,10 +24,7 @@ import (
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/throttling"
 	"github.com/kopia/kopia/repo/content"
-	"github.com/kopia/kopia/repo/encryption"
 	"github.com/kopia/kopia/repo/format"
-	"github.com/kopia/kopia/repo/hashing"
-	"github.com/kopia/kopia/repo/splitter"
 
 	"github.com/vmware-tanzu/velero/pkg/repository/udmrepo"
 )
@@ -52,12 +49,12 @@ func setupLimits(ctx context.Context, flags map[string]string) throttling.Limits
 func SetupNewRepositoryOptions(ctx context.Context, flags map[string]string) repo.NewRepositoryOptions {
 	return repo.NewRepositoryOptions{
 		BlockFormat: format.ContentFormat{
-			Hash:       optionalHaveStringWithDefault(udmrepo.StoreOptionGenHashAlgo, flags, hashing.DefaultAlgorithm),
-			Encryption: optionalHaveStringWithDefault(udmrepo.StoreOptionGenEncryptAlgo, flags, encryption.DefaultAlgorithm),
+			Hash:       optionalHaveStringWithDefault(udmrepo.StoreOptionGenHashAlgo, flags, "BLAKE3-256"),
+			Encryption: optionalHaveStringWithDefault(udmrepo.StoreOptionGenEncryptAlgo, flags, "AES256-GCM-HMAC-SHA256"),
 		},
 
 		ObjectFormat: format.ObjectFormat{
-			Splitter: optionalHaveStringWithDefault(udmrepo.StoreOptionGenSplitAlgo, flags, splitter.DefaultAlgorithm),
+			Splitter: optionalHaveStringWithDefault(udmrepo.StoreOptionGenSplitAlgo, flags, "DYNAMIC-1M-BUZHASH"),
 		},
 
 		RetentionMode:   blob.RetentionMode(optionalHaveString(udmrepo.StoreOptionGenRetentionMode, flags)),
