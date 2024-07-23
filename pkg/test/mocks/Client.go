@@ -13,6 +13,8 @@ import (
 
 	runtime "k8s.io/apimachinery/pkg/runtime"
 
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+
 	types "k8s.io/apimachinery/pkg/types"
 )
 
@@ -96,22 +98,85 @@ func (_m *Client) DeleteAllOf(ctx context.Context, obj client.Object, opts ...cl
 	return r0
 }
 
-// Get provides a mock function with given fields: ctx, key, obj
-func (_m *Client) Get(ctx context.Context, key types.NamespacedName, obj client.Object) error {
-	ret := _m.Called(ctx, key, obj)
+// Get provides a mock function with given fields: ctx, key, obj, opts
+func (_m *Client) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, key, obj)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Get")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object) error); ok {
-		r0 = rf(ctx, key, obj)
+	if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok {
+		r0 = rf(ctx, key, obj, opts...)
 	} else {
 		r0 = ret.Error(0)
 	}
 
 	return r0
+}
+
+// GroupVersionKindFor provides a mock function with given fields: obj
+func (_m *Client) GroupVersionKindFor(obj runtime.Object) (schema.GroupVersionKind, error) {
+	ret := _m.Called(obj)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GroupVersionKindFor")
+	}
+
+	var r0 schema.GroupVersionKind
+	var r1 error
+	if rf, ok := ret.Get(0).(func(runtime.Object) (schema.GroupVersionKind, error)); ok {
+		return rf(obj)
+	}
+	if rf, ok := ret.Get(0).(func(runtime.Object) schema.GroupVersionKind); ok {
+		r0 = rf(obj)
+	} else {
+		r0 = ret.Get(0).(schema.GroupVersionKind)
+	}
+
+	if rf, ok := ret.Get(1).(func(runtime.Object) error); ok {
+		r1 = rf(obj)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// IsObjectNamespaced provides a mock function with given fields: obj
+func (_m *Client) IsObjectNamespaced(obj runtime.Object) (bool, error) {
+	ret := _m.Called(obj)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsObjectNamespaced")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(runtime.Object) (bool, error)); ok {
+		return rf(obj)
+	}
+	if rf, ok := ret.Get(0).(func(runtime.Object) bool); ok {
+		r0 = rf(obj)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(runtime.Object) error); ok {
+		r1 = rf(obj)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // List provides a mock function with given fields: ctx, list, opts
@@ -205,19 +270,39 @@ func (_m *Client) Scheme() *runtime.Scheme {
 }
 
 // Status provides a mock function with given fields:
-func (_m *Client) Status() client.StatusWriter {
+func (_m *Client) Status() client.SubResourceWriter {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Status")
 	}
 
-	var r0 client.StatusWriter
-	if rf, ok := ret.Get(0).(func() client.StatusWriter); ok {
+	var r0 client.SubResourceWriter
+	if rf, ok := ret.Get(0).(func() client.SubResourceWriter); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(client.StatusWriter)
+			r0 = ret.Get(0).(client.SubResourceWriter)
+		}
+	}
+
+	return r0
+}
+
+// SubResource provides a mock function with given fields: subResource
+func (_m *Client) SubResource(subResource string) client.SubResourceClient {
+	ret := _m.Called(subResource)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubResource")
+	}
+
+	var r0 client.SubResourceClient
+	if rf, ok := ret.Get(0).(func(string) client.SubResourceClient); ok {
+		r0 = rf(subResource)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(client.SubResourceClient)
 		}
 	}
 

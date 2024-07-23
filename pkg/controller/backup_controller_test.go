@@ -194,8 +194,8 @@ func TestProcessBackupInProgressFailOnSecondReconcile(t *testing.T) {
 			if test.mockFailedPatch {
 				mockClient := velerotestmocks.NewClient(t)
 				mockClient.On("Patch", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(syscall.ECONNREFUSED).Once()
-				mockClient.On("Get", mock.Anything, mock.AnythingOfType("types.NamespacedName"), mock.AnythingOfType("*v1.Backup")).Return(func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-					return fakeKclient.Get(ctx, key, obj)
+				mockClient.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...kbclient.GetOption) error {
+					return fakeKclient.Get(ctx, key, obj, opts...)
 				})
 				kclient = mockClient
 			} else {
