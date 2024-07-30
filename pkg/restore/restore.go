@@ -1682,8 +1682,10 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	if patchBytes != nil {
 		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			// First attempt to patch the object
-			_, err = resourceClient.Patch(name, patchBytes)
-			if err != nil {
+			if patchBytes != nil {
+				_, err = resourceClient.Patch(name, patchBytes)
+			}
+			if patchBytes == nil || err != nil {
 				ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), err)
 				if apierrors.IsConflict(err) {
 					// Fetch latest object from the k8s
@@ -1706,8 +1708,10 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 						// Retry the patch operation with the updated patch bytes
 						_, err = resourceClient.Patch(name, patchBytes)
 						if err != nil {
+							patchBytes = nil
 							return err
 						}
+						ctx.log.Infof("managed fields for %s patched successfully", kube.NamespaceAndName(obj))
 					}
 				} else if !apierrors.IsNotFound(err) {
 					errs.Add(namespace, err)
