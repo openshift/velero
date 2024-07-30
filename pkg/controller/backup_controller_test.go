@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 	"k8s.io/utils/clock"
 	testclocks "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	fakeClient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -58,6 +60,7 @@ import (
 	pluginmocks "github.com/vmware-tanzu/velero/pkg/plugin/mocks"
 	biav2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/backupitemaction/v2"
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
+	velerotestmocks "github.com/vmware-tanzu/velero/pkg/test/mocks"
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
@@ -131,9 +134,10 @@ func TestProcessBackupNonProcessedItems(t *testing.T) {
 			)
 
 			c := &backupReconciler{
-				kbClient:   velerotest.NewFakeControllerRuntimeClient(t),
-				formatFlag: formatFlag,
-				logger:     logger,
+				kbClient:      velerotest.NewFakeControllerRuntimeClient(t),
+				formatFlag:    formatFlag,
+				logger:        logger,
+				backupTracker: NewBackupTracker(),
 			}
 			if test.backup != nil {
 				require.NoError(t, c.kbClient.Create(context.Background(), test.backup))
@@ -146,6 +150,72 @@ func TestProcessBackupNonProcessedItems(t *testing.T) {
 			// test hasn't set up the necessary controller dependencies for validation/etc. So the lack
 			// of segfaults during test execution here imply that backups are not being processed, which
 			// is what we expect.
+		})
+	}
+}
+
+// OADP Carry: Test that backup that has status inProgress on reconcile is changed to failed if velero has no memory of it still in-progress.
+func TestProcessBackupInProgressFailOnSecondReconcile(t *testing.T) {
+	tests := []struct {
+		name            string
+		tracked         bool
+		reconciledPhase velerov1api.BackupPhase
+		expectedErr     error
+		mockFailedPatch bool
+	}{
+		{
+			name:            "InProgress backup tracked as being in-progress is not processed",
+			tracked:         true,
+			reconciledPhase: velerov1api.BackupPhaseInProgress,
+		},
+		{
+			name:            "InProgress backup untracked as being in-progress is marked as failed",
+			tracked:         false,
+			reconciledPhase: velerov1api.BackupPhaseFailed,
+		},
+		{
+			name:            "InProgress backup untracked is marked as failed, if patch fails, err is returned from reconcile to retry patch again, backup still inprogress",
+			tracked:         false,
+			reconciledPhase: velerov1api.BackupPhaseInProgress,
+			mockFailedPatch: true,
+			expectedErr:     syscall.ECONNREFUSED,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			formatFlag := logging.FormatText
+			var (
+				logger = logging.DefaultLogger(logrus.DebugLevel, formatFlag)
+			)
+			backup := defaultBackup().Phase(velerov1api.BackupPhaseInProgress).Result()
+			var kclient kbclient.Client
+			fakeKclient := velerotest.NewFakeControllerRuntimeClient(t, backup)
+			if test.mockFailedPatch {
+				mockClient := velerotestmocks.NewClient(t)
+				mockClient.On("Patch", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(syscall.ECONNREFUSED).Once()
+				mockClient.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...kbclient.GetOption) error {
+					return fakeKclient.Get(ctx, key, obj, opts...)
+				})
+				kclient = mockClient
+			} else {
+				kclient = fakeKclient
+			}
+			c := &backupReconciler{
+				kbClient:      kclient,
+				formatFlag:    formatFlag,
+				logger:        logger,
+				backupTracker: NewBackupTracker(),
+			}
+			if test.tracked {
+				c.backupTracker.Add(backup.Namespace, backup.Name)
+			}
+			_, err := c.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: backup.Namespace, Name: backup.Name}})
+			assert.Equal(t, test.expectedErr, err)
+			reconciledBackup := velerov1api.Backup{}
+			err = c.kbClient.Get(context.Background(), types.NamespacedName{Namespace: backup.Namespace, Name: backup.Name}, &reconciledBackup)
+			assert.Nil(t, err)
+			assert.Equal(t, test.reconciledPhase, reconciledBackup.Status.Phase)
 		})
 	}
 }

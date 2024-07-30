@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"syscall"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/velero/internal/resourcemodifiers"
 	"github.com/vmware-tanzu/velero/internal/volume"
@@ -48,6 +50,7 @@ import (
 	riav2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/restoreitemaction/v2"
 	pkgrestore "github.com/vmware-tanzu/velero/pkg/restore"
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
+	velerotestmocks "github.com/vmware-tanzu/velero/pkg/test/mocks"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
 )
@@ -987,6 +990,79 @@ func TestMostRecentCompletedBackup(t *testing.T) {
 	backups = append(backups, expected)
 
 	assert.Equal(t, expected, mostRecentCompletedBackup(backups))
+}
+
+// OADP Carry: Test that restore that has status inProgress on reconcile is changed to failed if velero has memory of it failing.
+func TestProcessRestoreInProgressFailOnSecondReconcile(t *testing.T) {
+	tests := []struct {
+		name            string
+		trackedAsFailed bool
+		reconciledPhase velerov1api.RestorePhase
+		expectedErr     error
+		mockFailedPatch bool
+	}{
+		{
+			name:            "InProgress restore not tracked as failing is not processed",
+			trackedAsFailed: false,
+			reconciledPhase: velerov1api.RestorePhaseInProgress,
+		},
+		{
+			name:            "InProgress restore tracked as failing is marked as failed",
+			trackedAsFailed: true,
+			reconciledPhase: velerov1api.RestorePhaseFailed,
+		},
+		{
+			name:            "InProgress restore tracked as failing is marked as failed, if patch fails, err is returned from reconcile to retry patch again, restore still inprogress",
+			trackedAsFailed: true,
+			reconciledPhase: velerov1api.RestorePhaseInProgress,
+			mockFailedPatch: true,
+			expectedErr:     syscall.ECONNREFUSED,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			formatFlag := logging.FormatText
+			var (
+				logger = logging.DefaultLogger(logrus.DebugLevel, formatFlag)
+			)
+			restore := &velerov1api.Restore{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: velerov1api.DefaultNamespace,
+					Name:      "restore-1",
+				},
+				Status: velerov1api.RestoreStatus{
+					Phase: velerov1api.RestorePhaseInProgress,
+				},
+			}
+			var kclient kbclient.Client
+			fakeKclient := velerotest.NewFakeControllerRuntimeClient(t, restore)
+			if test.mockFailedPatch {
+				mockClient := velerotestmocks.NewClient(t)
+				mockClient.On("Patch", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(syscall.ECONNREFUSED).Once()
+				mockClient.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...kbclient.GetOption) error {
+					return fakeKclient.Get(ctx, key, obj, opts...)
+				})
+				kclient = mockClient
+			} else {
+				kclient = fakeKclient
+			}
+			c := &restoreReconciler{
+				kbClient:       kclient,
+				logger:         logger,
+				failingTracker: NewRestoreTracker(),
+			}
+			if test.trackedAsFailed {
+				c.failingTracker.Add(restore.Namespace, restore.Name)
+			}
+			_, err := c.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: restore.Namespace, Name: restore.Name}})
+			assert.Equal(t, test.expectedErr, err)
+			reconciledRestore := velerov1api.Restore{}
+			err = c.kbClient.Get(context.Background(), types.NamespacedName{Namespace: restore.Namespace, Name: restore.Name}, &reconciledRestore)
+			assert.Nil(t, err)
+			assert.Equal(t, test.reconciledPhase, reconciledRestore.Status.Phase)
+		})
+	}
 }
 
 func NewRestore(ns, name, backup, includeNS, includeResource string, phase velerov1api.RestorePhase) *builder.RestoreBuilder {
