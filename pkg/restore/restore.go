@@ -1670,64 +1670,48 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	}
 
 	// restore the managedFields
-	withoutManagedFields := createdObj.DeepCopy()
-	createdObj.SetManagedFields(obj.GetManagedFields())
-	patchBytes, err := generatePatch(withoutManagedFields, createdObj)
+	var firstPatchTry bool = true
+
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var withoutManagedFields *unstructured.Unstructured
+		var patchBytes []byte
+		var patchErr error
+
+		if !firstPatchTry {
+			withoutManagedFields, patchErr = resourceClient.Get(name, metav1.GetOptions{})
+			firstPatchTry = false
+			if patchErr != nil {
+				ctx.log.Errorf("error fetching latest object for %s: %v", kube.NamespaceAndName(obj), patchErr)
+				return patchErr
+			}
+
+		} else {
+			withoutManagedFields = createdObj.DeepCopy()
+		}
+
+		createdObj.SetManagedFields(obj.GetManagedFields())
+		patchBytes, patchErr = generatePatch(withoutManagedFields, createdObj)
+		if patchErr != nil {
+			ctx.log.Errorf("error generating patch for managed fields %s: %v", kube.NamespaceAndName(obj), patchErr)
+			return patchErr
+		}
+		if patchBytes != nil {
+			// Retry the patch operation with the updated patch bytes
+			_, patchErr = resourceClient.Patch(name, patchBytes)
+			if patchErr != nil {
+				ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), patchErr)
+				return patchErr
+			}
+			ctx.log.Infof("managed fields for %s patched successfully", kube.NamespaceAndName(obj))
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		ctx.log.Errorf("error generating patch for managed fields %s: %v", kube.NamespaceAndName(obj), err)
+		ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), err)
 		errs.Add(namespace, err)
 		return warnings, errs, itemExists
-	}
-
-	if patchBytes != nil {
-		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// First attempt to patch the object
-			if patchBytes != nil {
-				_, err = resourceClient.Patch(name, patchBytes)
-			}
-			if patchBytes == nil || err != nil {
-				ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), err)
-				if apierrors.IsConflict(err) {
-					// Fetch latest object from the k8s
-					fromCluster, err = resourceClient.Get(name, metav1.GetOptions{})
-					if err != nil {
-						ctx.log.Errorf("error fetching latest object for %s: %v", kube.NamespaceAndName(obj), err)
-						return err
-					}
-
-					// Re-generate the patch based on the latest object
-					withoutManagedFields = fromCluster.DeepCopy()
-					fromCluster.SetManagedFields(obj.GetManagedFields())
-					patchBytes, err = generatePatch(withoutManagedFields, fromCluster)
-					if err != nil {
-						ctx.log.Errorf("error regenerating patch for managed fields %s: %v", kube.NamespaceAndName(obj), err)
-						return err
-					}
-
-					if patchBytes != nil {
-						// Retry the patch operation with the updated patch bytes
-						_, err = resourceClient.Patch(name, patchBytes)
-						if err != nil {
-							patchBytes = nil
-							return err
-						}
-						ctx.log.Infof("managed fields for %s patched successfully", kube.NamespaceAndName(obj))
-					}
-				} else if !apierrors.IsNotFound(err) {
-					errs.Add(namespace, err)
-					return err
-				}
-			} else {
-				ctx.log.Infof("managed fields for %s patched successfully", kube.NamespaceAndName(obj))
-			}
-			return nil
-		})
-
-		if err != nil {
-			ctx.log.Errorf("error patching managed fields %s after retry: %v", kube.NamespaceAndName(obj), err)
-			errs.Add(namespace, err)
-			return warnings, errs, itemExists
-		}
 	}
 
 	if groupResource == kuberesource.Pods {
