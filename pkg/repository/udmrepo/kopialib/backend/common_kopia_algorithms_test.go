@@ -130,6 +130,22 @@ func TestSetupNewRepoAlgorithms(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:    "hash in StoreOptionGenHashAlgo and invalid in env, StoreOptionGenHashAlgo takes precedence",
+			envVars: map[string]string{"KOPIA_HASHING_ALGORITHM": "INVALID"},
+			flags: map[string]string{
+				udmrepo.StoreOptionGenHashAlgo: "HMAC-SHA3-256",
+			},
+			expected: repo.NewRepositoryOptions{
+				BlockFormat: format.ContentFormat{
+					Hash:       "HMAC-SHA3-256",
+					Encryption: encryption.DefaultAlgorithm,
+				},
+				ObjectFormat: format.ObjectFormat{
+					Splitter: splitter.DefaultAlgorithm,
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
