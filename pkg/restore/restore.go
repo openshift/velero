@@ -1678,17 +1678,15 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 		var patchErr error
 
 		if !firstPatchTry {
-			withoutManagedFields, patchErr = resourceClient.Get(name, metav1.GetOptions{})
-			firstPatchTry = false
+			createdObj, patchErr = resourceClient.Get(name, metav1.GetOptions{})
 			if patchErr != nil {
 				ctx.log.Errorf("error fetching latest object for %s: %v", kube.NamespaceAndName(obj), patchErr)
 				return patchErr
 			}
-
-		} else {
-			withoutManagedFields = createdObj.DeepCopy()
 		}
 
+		firstPatchTry = false
+		withoutManagedFields = createdObj.DeepCopy()
 		createdObj.SetManagedFields(obj.GetManagedFields())
 		patchBytes, patchErr = generatePatch(withoutManagedFields, createdObj)
 		if patchErr != nil {
@@ -1696,7 +1694,6 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 			return patchErr
 		}
 		if patchBytes != nil {
-			// Retry the patch operation with the updated patch bytes
 			_, patchErr = resourceClient.Patch(name, patchBytes)
 			if patchErr != nil {
 				ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), patchErr)
@@ -1708,8 +1705,7 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 		return nil
 	})
 
-	if err != nil {
-		ctx.log.Errorf("error patching managed fields %s: %v", kube.NamespaceAndName(obj), err)
+	if err != nil && !apierrors.IsNotFound(err) {
 		errs.Add(namespace, err)
 		return warnings, errs, itemExists
 	}
