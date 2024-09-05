@@ -252,6 +252,11 @@ func RunKibishiiTests(veleroCfg VeleroConfig, backupName, restoreName, backupLoc
 
 func installKibishii(ctx context.Context, namespace string, cloudPlatform, veleroFeatures,
 	kibishiiDirectory string, useVolumeSnapshots bool, workerReplicas int) error {
+	// FIXME: for now assume openshift==aws
+	if strings.EqualFold(cloudPlatform, OpenShift) {
+		cloudPlatform = AWS
+	}
+
 	if strings.EqualFold(cloudPlatform, Azure) &&
 		strings.EqualFold(veleroFeatures, FeatureCSI) {
 		cloudPlatform = AzureCSI

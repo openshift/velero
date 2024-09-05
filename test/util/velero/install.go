@@ -235,6 +235,9 @@ func installVeleroServer(ctx context.Context, cli, cloudProvider string, options
 	}
 	if options.UseNodeAgent {
 		args = append(args, "--use-node-agent")
+		if cloudProvider == OpenShift {
+			args = append(args, "--privileged-node-agent")
+		}
 	}
 	if options.DefaultVolumesToFsBackup {
 		args = append(args, "--default-volumes-to-fs-backup")
@@ -283,9 +286,16 @@ func installVeleroServer(ctx context.Context, cli, cloudProvider string, options
 	if len(options.Features) > 0 {
 		args = append(args, "--features", options.Features)
 		if !strings.EqualFold(cloudProvider, Vsphere) && strings.EqualFold(options.Features, FeatureCSI) && options.UseVolumeSnapshots {
+			// FIXME: for now assume openshift==aws
+			var csiCloudProvider string
+			if strings.EqualFold(cloudProvider, OpenShift) {
+				csiCloudProvider = AWS
+			} else {
+				csiCloudProvider = cloudProvider
+			}
 			// https://github.com/openebs/zfs-localpv/blob/develop/docs/snapshot.md
-			fmt.Printf("Start to install %s VolumeSnapshotClass ... \n", cloudProvider)
-			if err := KubectlApplyByFile(ctx, fmt.Sprintf("../testdata/volume-snapshot-class/%s.yaml", cloudProvider)); err != nil {
+			fmt.Printf("Start to install %s VolumeSnapshotClass ... \n", csiCloudProvider)
+			if err := KubectlApplyByFile(ctx, fmt.Sprintf("../testdata/volume-snapshot-class/%s.yaml", csiCloudProvider)); err != nil {
 				fmt.Println("Fail to install VolumeSnapshotClass when CSI feature is enabled: ", err)
 				return err
 			}
@@ -338,6 +348,15 @@ func installVeleroServer(ctx context.Context, cli, cloudProvider string, options
 
 	if err := createVelereResources(ctx, cli, namespace, args, options); err != nil {
 		return err
+	}
+
+	if cloudProvider == OpenShift {
+		sccCmd := exec.CommandContext(ctx, "oc", "adm", "policy", "add-scc-to-user", "privileged", "-z", "velero", "-n", namespace)
+		fmt.Printf("Running OpenShift SCC cmd %q \n", sccCmd.String())
+		_, _, err := velerexec.RunCommand(sccCmd)
+		if err != nil {
+			return errors.Wrapf(err, "failed to add velero SA to privileged SCC")
+		}
 	}
 
 	return waitVeleroReady(ctx, namespace, options.UseNodeAgent)
