@@ -19,6 +19,34 @@ GOPATH := $(shell go env GOPATH)
 GOBIN := $(GOPATH)/bin
 GOSRC := $(GOPATH)/src
 
+##>> e2e-tests-defaults: Required default values for the e2e-tests
+# Namespace to which verelo will get installed
+VELERO_TEST_NAMESPACE ?= openshift-adp
+
+# Default e2e-test values
+CLOUD_PROVIDER ?= openshift
+OBJECT_STORE_PROVIDER ?= aws
+
+# Default prow file where e2e test credentials are mounted
+CREDS_FILE ?= /var/run/oadp-credentials
+
+# File with S3 bucket details, based on credentials location
+BSL_BUCKET_FILE := "${CREDS_FILE}/new-velero-bucket-name"
+
+# Tests to run:
+GINKGO_LABELS ?= "Basic"
+
+# Uploader type to be used during e2e tests
+UPLOADER_TYPE ?= kopia
+
+.PHONY: setup-test-e2e
+setup-test-e2e:
+       @echo "Setting up environment for test-e2e..."
+       # Extract bucket name from the mounted file
+       $(eval BSL_BUCKET := $(shell cat "${BSL_BUCKET_FILE}"))
+       @echo "BSL_BUCKET is set to: ${BSL_BUCKET}"
+
+##<< e2e-tests-defaults
 
 # upstream ci target: verify-modules verify all test
 # we need to modify verify, test, all to avoid usage of docker CLI
@@ -88,3 +116,7 @@ $(GOBIN)/golangci-lint:
 $(GOBIN)/setup-envtest:
 	@echo "Installing envtest tools"
 	go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+.PHONY: test-e2e
+test-e2e: setup-test-e2e
+	$(MAKE) -e GINKGO_LABELS=$(GINKGO_LABELS) VERSION=$(VERSION) CREDS_FILE=$(CREDS_FILE) BSL_BUCKET=$(BSL_BUCKET) VELERO_NAMESPACE=$(VELERO_TEST_NAMESPACE) CLOUD_PROVIDER=$(CLOUD_PROVIDER) OBJECT_STORE_PROVIDER=$(OBJECT_STORE_PROVIDER) UPLOADER_TYPE=$(UPLOADER_TYPE) -C test/ run-e2e
