@@ -72,7 +72,7 @@ setup-envtest: $(GOBIN)/setup-envtest
 
 $(GOBIN)/goimports:
 	@echo "Installing goimports"
-	go install golang.org/x/tools/cmd/goimports@11e9d9cc0042e6bd10337d4d2c3e5d9295508e7d
+	go install golang.org/x/tools/cmd/goimports@v0.24.0
 
 $(GOBIN)/controller-gen:
 	@echo "Installing controller-gen"
