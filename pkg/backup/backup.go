@@ -27,6 +27,8 @@ import (
 	"path/filepath"
 	"time"
 
+	corev1api "k8s.io/api/core/v1"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,6 +63,9 @@ const BackupVersion = 1
 
 // BackupFormatVersion is the current backup version for Velero, including major, minor, and patch.
 const BackupFormatVersion = "1.1.0"
+
+// ArgoCD managed by namespace label key
+const ArgoCDManagedByNamespaceLabel = "argocd.argoproj.io/managed-by"
 
 // Backupper performs backups.
 type Backupper interface {
@@ -202,6 +207,17 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	backupRequest.NamespaceIncludesExcludes = getNamespaceIncludesExcludes(backupRequest.Backup)
 	log.Infof("Including namespaces: %s", backupRequest.NamespaceIncludesExcludes.IncludesString())
 	log.Infof("Excluding namespaces: %s", backupRequest.NamespaceIncludesExcludes.ExcludesString())
+
+	// check if there are any namespaces included in the backup which are managed by argoCD
+	// We will check for the existence of a ArgoCD label in the includedNamespaces and add a warning
+	// so that users are at least aware about the existence of argoCD managed ns in their backup
+	if len(backupRequest.Spec.IncludedNamespaces) > 0 {
+		nsManagedByArgoCD := getNamespacesManagedByArgoCD(kb.kbClient, backupRequest.Spec.IncludedNamespaces, log)
+
+		if len(nsManagedByArgoCD) > 0 {
+			log.Warnf("backup operation may encounter complications and potentially produce undesirable results due to the inclusion of namespaces %v managed by ArgoCD in the backup.", nsManagedByArgoCD)
+		}
+	}
 
 	if collections.UseOldResourceFilters(backupRequest.Spec) {
 		backupRequest.ResourceIncludesExcludes = collections.GetGlobalResourceIncludesExcludes(kb.discoveryHelper, log,
@@ -715,4 +731,22 @@ type tarWriter interface {
 	io.Closer
 	Write([]byte) (int, error)
 	WriteHeader(*tar.Header) error
+}
+
+func getNamespacesManagedByArgoCD(kbClient kbclient.Client, includedNamespaces []string, log logrus.FieldLogger) []string {
+	var nsManagedByArgoCD []string
+
+	for _, nsName := range includedNamespaces {
+		ns := corev1api.Namespace{}
+		if err := kbClient.Get(context.Background(), kbclient.ObjectKey{Name: nsName}, &ns); err != nil {
+			log.WithError(err).Errorf("error getting namespace %s", nsName)
+			continue
+		}
+
+		nsLabels := ns.GetLabels()
+		if len(nsLabels[ArgoCDManagedByNamespaceLabel]) > 0 {
+			nsManagedByArgoCD = append(nsManagedByArgoCD, nsName)
+		}
+	}
+	return nsManagedByArgoCD
 }
