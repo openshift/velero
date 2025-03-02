@@ -2319,6 +2319,7 @@ func (ctx *restoreContext) getSelectedRestoreableItems(resource string, original
 
 		if !ctx.resourceMustHave.Has(resource) {
 			if !ctx.selector.Matches(labels.Set(obj.GetLabels())) {
+				ctx.log.Infof("Skipping %s/%s because it's labels do not match selector", resource, item)
 				continue
 			}
 
