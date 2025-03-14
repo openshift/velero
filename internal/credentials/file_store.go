@@ -30,7 +30,7 @@ import (
 )
 
 // FileStore defines operations for interacting with credentials
-// that are stored on a file system.
+// that are stored on a file system. Test
 type FileStore interface {
 	// Path returns a path on disk where the secret key defined by
 	// the given selector is serialized.
