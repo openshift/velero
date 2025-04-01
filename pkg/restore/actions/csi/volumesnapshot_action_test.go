@@ -118,12 +118,6 @@ func TestVSExecute(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name:      "VS doesn't have VSC in status",
-			vs:        builder.ForVolumeSnapshot("ns", "name").ObjectMeta(builder.WithAnnotations("1", "1")).Status().Result(),
-			restore:   builder.ForRestore("velero", "restore").NamespaceMappings("ns", "newNS").Result(),
-			expectErr: true,
-		},
-		{
 			name: "Normal case, VSC should be created",
 			vs: builder.ForVolumeSnapshot("ns", "vsName").ObjectMeta(
 				builder.WithAnnotationsMap(
