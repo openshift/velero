@@ -28,8 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	veleroclient "github.com/vmware-tanzu/velero/pkg/client"
 )
 
 // Ensurer ensures that backup repositories are created and ready.
@@ -62,15 +61,17 @@ func (r *Ensurer) EnsureRepo(ctx context.Context, namespace, volumeNamespace, ba
 
 	log := r.log.WithField("volumeNamespace", volumeNamespace).WithField("backupLocation", backupLocation).WithField("repositoryType", repositoryType)
 
-	// The BackupRepository is labeled with BackupRepositoryKey.
-	// This function searches for an existing BackupRepository by BackupRepositoryKey label.
-	// If it doesn't exist, it creates a new one and wait for its readiness.
+	// It's only safe to have one instance of this method executing concurrently for a
+	// given BackupRepositoryKey, so synchronize based on that. It's fine
+	// to run concurrently for *different* BackupRepositoryKey. If you had 2 goroutines
+	// running this for the same inputs, both might find no BackupRepository exists, then
+	// both would create new ones for the same BackupRepositoryKey.
 	//
-	// The BackupRepository is also named as BackupRepositoryKey.
-	// It creates a BackupRepository with deterministic name
-	// so that this function could support multiple thread calling by leveraging API server's optimistic lock mechanism.
-	// Therefore, the name must be unique for a BackupRepository.
-	// Don't use name to filter/search BackupRepository, since it may be changed in future, use label instead.
+	// This issue could probably be avoided if we had a deterministic name for
+	// each BackupRepository and we just tried to create it, checked for an
+	// AlreadyExists err, and then waited for it to be ready. However, there are
+	// already repositories in the wild with non-deterministic names (i.e. using
+	// GenerateName) which poses a backwards compatibility problem.
 	log.Debug("Acquiring lock")
 
 	repoMu := r.repoLock(backupRepoKey)
@@ -107,8 +108,7 @@ func (r *Ensurer) repoLock(key BackupRepositoryKey) *sync.Mutex {
 
 func (r *Ensurer) createBackupRepositoryAndWait(ctx context.Context, namespace string, backupRepoKey BackupRepositoryKey) (*velerov1api.BackupRepository, error) {
 	toCreate := NewBackupRepository(namespace, backupRepoKey)
-
-	if err := r.repoClient.Create(ctx, toCreate, &client.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+	if err := veleroclient.CreateRetryGenerateName(r.repoClient, ctx, toCreate); err != nil {
 		return nil, errors.Wrap(err, "unable to create backup repository resource")
 	}
 
