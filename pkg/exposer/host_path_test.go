@@ -65,7 +65,7 @@ func TestGetPodVolumeHostPath(t *testing.T) {
 			},
 			pod: builder.ForPod(velerov1api.DefaultNamespace, "fake-pod-2").Result(),
 			pvc: "fake-pvc-1",
-			err: "error identifying unique volume path on host for volume fake-pvc-1 in pod fake-pod-2: fake-error-2",
+			err: "error identifying unique volume path on host for volume fake-pvc-1 in pod fake-pod-2, or the DPA spec.configuration.velero.disableFsBackup is set to true, please contact your administrator. : fake-error-2",
 		},
 		{
 			name: "get block volume dir success",
