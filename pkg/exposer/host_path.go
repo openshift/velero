@@ -62,7 +62,10 @@ func GetPodVolumeHostPath(ctx context.Context, pod *corev1.Pod, volumeName strin
 
 	path, err := singlePathMatch(pathGlob, fs, logger)
 	if err != nil {
-		return datapath.AccessPoint{}, errors.Wrapf(err, "error identifying unique volume path on host for volume %s in pod %s", volumeName, pod.Name)
+		return datapath.AccessPoint{}, errors.Wrapf(err, "error identifying unique volume path "+
+			"on host for volume %s in pod %s, or the DPA spec.configuration.velero.disableFsBackup "+
+			"is set to true, please contact your administrator. ",
+			volumeName, pod.Name)
 	}
 
 	logger.WithField("path", path).Info("Found path matching glob")
