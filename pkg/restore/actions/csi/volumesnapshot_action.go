@@ -24,6 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	plugincommon "github.com/vmware-tanzu/velero/pkg/plugin/framework/common"
@@ -106,12 +108,20 @@ func (p *volumeSnapshotRestoreItemAction) Execute(
 		return nil, errors.WithStack(err)
 	}
 
-	p.log.Infof(`Returning from VolumeSnapshotRestoreItemAction with 
-		no additionalItems`)
+	// Adding VS's VolumeSnapshotContent
+	additionalItem := velero.ResourceIdentifier{
+		GroupResource: schema.GroupResource{
+			Group:    "snapshot.storage.k8s.io",
+			Resource: "volumesnapshotcontents",
+		},
+		Name: *vsFromBackup.Status.BoundVolumeSnapshotContentName,
+	}
+
+	p.log.Infof("Returning from VolumeSnapshotRestoreItemAction with VolumeSnapshotContent as an additional item")
 
 	return &velero.RestoreItemActionExecuteOutput{
 		UpdatedItem:     &unstructured.Unstructured{Object: vsMap},
-		AdditionalItems: []velero.ResourceIdentifier{},
+		AdditionalItems: []velero.ResourceIdentifier{additionalItem},
 	}, nil
 }
 
