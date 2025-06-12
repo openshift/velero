@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG OS_VERSION=1809
+ARG OS_VERSION=2009
 
 # Velero binary build section
 FROM --platform=$BUILDPLATFORM golang:1.23.8-bookworm AS velero-builder
