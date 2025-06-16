@@ -51,16 +51,3 @@ ENV HOME=/home/velero
 
 ENTRYPOINT ["/velero"]
 
-LABEL \
-        com.redhat.component="oadp-velero-container" \
-        version="1.5.0" \
-        name="oadp/oadp-velero-rhel9" \
-        License="Apache License 2.0" \
-        io.k8s.display-name="OADP Velero" \
-        io.openshift.tags="migration" \
-        io.k8s.description="OpenShift API for Data Protection - Velero" \
-        io.openshift.build.commit.id="8fbcf3a8da11a1d915c2d4a4727f32533624d4e7" \
-        io.openshift.build.source-location="https://github.com/openshift/velero" \
-        io.openshift.build.commit.url="https://github.com/openshift/velero/commit/8fbcf3a8da11a1d915c2d4a4727f32533624d4e7" \
-        summary="OpenShift API for Data Protection - Velero" \
-        maintainer="OpenShift API for Data Protection Team <oadp-team@redhat.com>"
