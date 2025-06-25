@@ -42,6 +42,7 @@ COPY --from=builder /workspace/bin/velero velero
 COPY --from=builder /workspace/bin/velero-restore-helper velero-restore-helper
 COPY --from=builder /workspace/bin/velero-helper velero-helper
 COPY --from=builder /workspace/restic/bin/restic /usr/bin/restic
+COPY LICENSE /licenses/
 
 RUN mkdir -p /home/velero
 RUN chmod -R 777 /home/velero
