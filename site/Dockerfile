@@ -1,4 +1,4 @@
-FROM klakegg/hugo:0.73.0-ext-ubuntu
+FROM klakegg/hugo:0.111.3-ext-ubuntu
 
 WORKDIR /srv/hugo
 
