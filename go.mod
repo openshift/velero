@@ -154,7 +154,7 @@ require (
 	go.opentelemetry.io/otel v1.25.0 // indirect
 	go.opentelemetry.io/otel/metric v1.25.0 // indirect
 	go.opentelemetry.io/otel/trace v1.25.0 // indirect
-	go.starlark.net v0.0.0-20201006213952-227f4aabceb5 // indirect
+	go.starlark.net v0.0.0-20250623223156-8bf495bf4e9a // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
