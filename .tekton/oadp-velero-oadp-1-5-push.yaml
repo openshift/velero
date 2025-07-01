@@ -564,6 +564,8 @@ spec:
         - '1.5'
         - 1.5.1
         - latest
+        - velero-v1.16
+        - velero-v1.16.1
       - name: IMAGE_URL
         value: $(tasks.build-image-index.results.IMAGE_URL)
       - name: IMAGE_DIGEST
