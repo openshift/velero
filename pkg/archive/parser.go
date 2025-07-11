@@ -76,11 +76,13 @@ func (p *Parser) Parse(dir string) (map[string]*ResourceItems, error) {
 	// loop through each subdirectory (one per resource) and assemble
 	// catalog of items within it.
 	resources := map[string]*ResourceItems{}
+	p.log.Info("Parsing backup archive for restore")
 	for _, resourceDir := range resourceDirs {
 		if !resourceDir.IsDir() {
 			p.log.Warnf("Ignoring unexpected file %q in directory %q", resourceDir.Name(), strings.TrimPrefix(resourcesDir, dir+"/"))
 			continue
 		}
+		p.log.Infof("Parsing resource %s", resourceDir.Name())
 
 		resourceItems := &ResourceItems{
 			GroupResource:    resourceDir.Name(),
@@ -100,6 +102,7 @@ func (p *Parser) Parse(dir string) (map[string]*ResourceItems, error) {
 				return nil, err
 			}
 
+			p.log.Infof("Cluster-scoped items found for resource %s, %v", resourceDir.Name(), len(items))
 			if len(items) > 0 {
 				resourceItems.ItemsByNamespace[""] = items
 			}
@@ -118,6 +121,7 @@ func (p *Parser) Parse(dir string) (map[string]*ResourceItems, error) {
 				return nil, errors.Wrapf(err, "error reading contents of directory %q", strings.TrimPrefix(namespaceScopedDir, dir+"/"))
 			}
 
+			p.log.Infof("Namespaces found for resource %s, %v", resourceDir.Name(), len(namespaceDirs))
 			for _, namespaceDir := range namespaceDirs {
 				if !namespaceDir.IsDir() {
 					p.log.Warnf("Ignoring unexpected file %q in directory %q", namespaceDir.Name(), strings.TrimPrefix(namespaceScopedDir, dir+"/"))
@@ -129,6 +133,7 @@ func (p *Parser) Parse(dir string) (map[string]*ResourceItems, error) {
 					return nil, err
 				}
 
+				p.log.Infof("Items found for resource %s in namespace %s, %v", resourceDir.Name(), namespaceDir.Name(), len(items))
 				if len(items) > 0 {
 					resourceItems.ItemsByNamespace[namespaceDir.Name()] = items
 				}
