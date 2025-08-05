@@ -18,7 +18,7 @@ ENV GOPATH=$APP_ROOT
 
 RUN mkdir -p $APP_ROOT/src/github.com/restic \
     && cd $APP_ROOT/src/github.com/restic \
-    && git clone https://github.com/konveyor/restic -b konveyor-dev
+    && git clone https://github.com/konveyor/restic -b oadp-1.4
 
 WORKDIR $APP_ROOT/src/github.com/restic/restic
 
