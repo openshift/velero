@@ -58,6 +58,7 @@ type backupper struct {
 	handlerRegistration cache.ResourceEventHandlerRegistration
 	wg                  sync.WaitGroup
 	result              []*velerov1api.PodVolumeBackup
+	processedPVBs       sync.Map // tracks PVBs that have already been processed to avoid calling Done() multiple times
 }
 
 type skippedPVC struct {
@@ -109,14 +110,15 @@ func newBackupper(
 	backup *velerov1api.Backup,
 ) *backupper {
 	b := &backupper{
-		ctx:          ctx,
-		repoLocker:   repoLocker,
-		repoEnsurer:  repoEnsurer,
-		crClient:     crClient,
-		uploaderType: uploaderType,
-		pvbInformer:  pvbInformer,
-		wg:           sync.WaitGroup{},
-		result:       []*velerov1api.PodVolumeBackup{},
+		ctx:           ctx,
+		repoLocker:    repoLocker,
+		repoEnsurer:   repoEnsurer,
+		crClient:      crClient,
+		uploaderType:  uploaderType,
+		pvbInformer:   pvbInformer,
+		wg:            sync.WaitGroup{},
+		result:        []*velerov1api.PodVolumeBackup{},
+		processedPVBs: sync.Map{},
 	}
 
 	b.handlerRegistration, _ = pvbInformer.AddEventHandler(
@@ -133,8 +135,16 @@ func newBackupper(
 					return
 				}
 
-				b.result = append(b.result, pvb)
-				b.wg.Done()
+				// Generate a unique key for this PVB
+				pvbKey := pvb.Namespace + "/" + pvb.Name
+				
+				// Check if we've already processed this PVB in final status
+				// This prevents calling WaitGroup.Done() multiple times for the same PVB
+				// which could happen if the handler receives multiple update events with the PVB already in final status
+				if _, alreadyProcessed := b.processedPVBs.LoadOrStore(pvbKey, true); !alreadyProcessed {
+					b.result = append(b.result, pvb)
+					b.wg.Done()
+				}
 			},
 		},
 	)
