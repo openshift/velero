@@ -11,6 +11,10 @@ import (
 	"os/exec"
 )
 
+const (
+	DefaultBSLName string = "default"
+)
+
 type OsCommandLine struct {
 	Cmd  string
 	Args []string
