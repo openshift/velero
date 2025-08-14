@@ -119,7 +119,7 @@ func TestHandleHooksSkips(t *testing.T) {
 			}
 
 			groupResource := schema.ParseGroupResource(test.groupResource)
-			err := h.HandleHooks(velerotest.NewLogger(), groupResource, test.item, test.hooks, PhasePre, hookTracker)
+			err := h.HandleHooks(velerotest.NewLogger(), groupResource, test.item, test.hooks, PhasePre, hookTracker, false)
 			assert.NoError(t, err)
 		})
 	}
@@ -487,7 +487,7 @@ func TestHandleHooks(t *testing.T) {
 
 			groupResource := schema.ParseGroupResource(test.groupResource)
 			hookTracker := NewHookTracker()
-			err := h.HandleHooks(velerotest.NewLogger(), groupResource, test.item, test.hooks, test.phase, hookTracker)
+			err := h.HandleHooks(velerotest.NewLogger(), groupResource, test.item, test.hooks, test.phase, hookTracker, false)
 
 			if test.expectedError != nil {
 				assert.EqualError(t, err, test.expectedError.Error())
@@ -2350,7 +2350,7 @@ func TestBackupHookTracker(t *testing.T) {
 						}
 					}
 				}
-				h.HandleHooks(velerotest.NewLogger(), groupResource, pod.item, pod.hooks, test.phase, hookTracker)
+				h.HandleHooks(velerotest.NewLogger(), groupResource, pod.item, pod.hooks, test.phase, hookTracker, false)
 			}
 			actualAtemptted, actualFailed := hookTracker.Stat()
 			assert.Equal(t, test.expectedHookAttempted, actualAtemptted)
@@ -2476,6 +2476,77 @@ func TestRestoreHookTrackerAdd(t *testing.T) {
 			}
 			tracker := tc.hookTracker.trackers["restore1"].tracker
 			assert.Len(t, tracker, tc.expectedCnt)
+		})
+	}
+}
+
+func TestDisableAnnotationHooks(t *testing.T) {
+	tests := []struct {
+		name                   string
+		disableAnnotationHooks bool
+		annotations            map[string]string
+		expectHookExecution    bool
+	}{
+		{
+			name:                   "annotation hooks enabled (default) with hook annotation",
+			disableAnnotationHooks: false,
+			annotations: map[string]string{
+				podBackupHookCommandAnnotationKey: "echo hello",
+			},
+			expectHookExecution: true,
+		},
+		{
+			name:                   "annotation hooks disabled with hook annotation",
+			disableAnnotationHooks: true,
+			annotations: map[string]string{
+				podBackupHookCommandAnnotationKey: "echo hello",
+			},
+			expectHookExecution: false,
+		},
+		{
+			name:                   "annotation hooks disabled without hook annotation",
+			disableAnnotationHooks: true,
+			annotations:            map[string]string{},
+			expectHookExecution:    false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			podCommandExecutor := &velerotest.MockPodCommandExecutor{}
+			
+			if test.expectHookExecution {
+				podCommandExecutor.On("ExecutePodCommand", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
+
+			h := &DefaultItemHookHandler{
+				PodCommandExecutor: podCommandExecutor,
+			}
+
+			var pod *corev1api.Pod
+			if len(test.annotations) > 0 {
+				// Create annotations as variadic parameters
+				var annotationArgs []string
+				for k, v := range test.annotations {
+					annotationArgs = append(annotationArgs, k, v)
+				}
+				pod = builder.ForPod("default", "test-pod").
+					ObjectMeta(builder.WithAnnotations(annotationArgs...)).
+					Result()
+			} else {
+				pod = builder.ForPod("default", "test-pod").Result()
+			}
+
+			item, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
+			assert.NoError(t, err)
+
+			groupResource := kuberesource.Pods
+			hookTracker := NewHookTracker()
+			
+			err = h.HandleHooks(velerotest.NewLogger(), groupResource, &unstructured.Unstructured{Object: item}, []ResourceHook{}, PhasePre, hookTracker, test.disableAnnotationHooks)
+			assert.NoError(t, err)
+
+			podCommandExecutor.AssertExpectations(t)
 		})
 	}
 }

@@ -83,6 +83,7 @@ type ItemHookHandler interface {
 		resourceHooks []ResourceHook,
 		phase HookPhase,
 		hookTracker *HookTracker,
+		disableAnnotationHooks bool,
 	) error
 }
 
@@ -202,6 +203,7 @@ func (h *DefaultItemHookHandler) HandleHooks(
 	resourceHooks []ResourceHook,
 	phase HookPhase,
 	hookTracker *HookTracker,
+	disableAnnotationHooks bool,
 ) error {
 	// We only support hooks on pods right now
 	if groupResource != kuberesource.Pods {
@@ -217,10 +219,14 @@ func (h *DefaultItemHookHandler) HandleHooks(
 	name := metadata.GetName()
 
 	// If the pod has the hook specified via annotations, that takes priority.
-	hookFromAnnotations := getPodExecHookFromAnnotations(metadata.GetAnnotations(), phase, log)
-	if phase == PhasePre && hookFromAnnotations == nil {
-		// See if the pod has the legacy hook annotation keys (i.e. without a phase specified)
-		hookFromAnnotations = getPodExecHookFromAnnotations(metadata.GetAnnotations(), "", log)
+	// However, check if annotation hooks are disabled.
+	var hookFromAnnotations *velerov1api.ExecHook
+	if !disableAnnotationHooks {
+		hookFromAnnotations = getPodExecHookFromAnnotations(metadata.GetAnnotations(), phase, log)
+		if phase == PhasePre && hookFromAnnotations == nil {
+			// See if the pod has the legacy hook annotation keys (i.e. without a phase specified)
+			hookFromAnnotations = getPodExecHookFromAnnotations(metadata.GetAnnotations(), "", log)
+		}
 	}
 	if hookFromAnnotations != nil {
 		hookTracker.Add(namespace, name, hookFromAnnotations.Container, HookSourceAnnotation, "", phase)
@@ -314,6 +320,7 @@ func (h *NoOpItemHookHandler) HandleHooks(
 	resourceHooks []ResourceHook,
 	phase HookPhase,
 	hookTracker *HookTracker,
+	disableAnnotationHooks bool,
 ) error {
 	return nil
 }

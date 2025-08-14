@@ -783,7 +783,8 @@ func (kb *kubernetesBackupper) handleItemBlockPreHooks(itemBlock *BackupItemBloc
 	var failedPods []itemblock.ItemBlockItem
 	var errs []error
 	for _, pod := range hookPods {
-		err := itemBlock.itemBackupper.itemHookHandler.HandleHooks(itemBlock.Log, pod.Gr, pod.Item, itemBlock.itemBackupper.backupRequest.ResourceHooks, hook.PhasePre, itemBlock.itemBackupper.hookTracker)
+		disableAnnotationHooks := itemBlock.itemBackupper.backupRequest.Spec.DisableAnnotationHooks != nil && *itemBlock.itemBackupper.backupRequest.Spec.DisableAnnotationHooks
+		err := itemBlock.itemBackupper.itemHookHandler.HandleHooks(itemBlock.Log, pod.Gr, pod.Item, itemBlock.itemBackupper.backupRequest.ResourceHooks, hook.PhasePre, itemBlock.itemBackupper.hookTracker, disableAnnotationHooks)
 		if err == nil {
 			successPods = append(successPods, pod)
 		} else {
@@ -805,8 +806,9 @@ func (kb *kubernetesBackupper) handleItemBlockPostHooks(itemBlock *BackupItemBlo
 	}
 
 	for _, pod := range hookPods {
+		disableAnnotationHooks := itemBlock.itemBackupper.backupRequest.Spec.DisableAnnotationHooks != nil && *itemBlock.itemBackupper.backupRequest.Spec.DisableAnnotationHooks
 		if err := itemBlock.itemBackupper.itemHookHandler.HandleHooks(itemBlock.Log, pod.Gr, pod.Item, itemBlock.itemBackupper.backupRequest.ResourceHooks,
-			hook.PhasePost, itemBlock.itemBackupper.hookTracker); err != nil {
+			hook.PhasePost, itemBlock.itemBackupper.hookTracker, disableAnnotationHooks); err != nil {
 			log.WithError(err).WithField("name", pod.Item.GetName()).Error("Error running post hooks for pod")
 		}
 	}

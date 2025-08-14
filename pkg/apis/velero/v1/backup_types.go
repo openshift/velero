@@ -180,6 +180,13 @@ type BackupSpec struct {
 	// +optional
 	// +nullable
 	UploaderConfig *UploaderConfigForBackup `json:"uploaderConfig,omitempty"`
+
+	// DisableAnnotationHooks specifies whether to disable backup hooks 
+	// defined via pod annotations. If set to true, only hooks defined in
+	// the backup spec will be executed.
+	// +optional
+	// +nullable
+	DisableAnnotationHooks *bool `json:"disableAnnotationHooks,omitempty"`
 }
 
 // UploaderConfigForBackup defines the configuration for the uploader when doing backup.
