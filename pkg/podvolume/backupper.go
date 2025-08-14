@@ -58,7 +58,6 @@ type backupper struct {
 	handlerRegistration cache.ResourceEventHandlerRegistration
 	wg                  sync.WaitGroup
 	result              []*velerov1api.PodVolumeBackup
-	processedPVBs       sync.Map // tracks PVBs that have already been processed to avoid calling Done() multiple times
 }
 
 type skippedPVC struct {
@@ -110,21 +109,20 @@ func newBackupper(
 	backup *velerov1api.Backup,
 ) *backupper {
 	b := &backupper{
-		ctx:           ctx,
-		repoLocker:    repoLocker,
-		repoEnsurer:   repoEnsurer,
-		crClient:      crClient,
-		uploaderType:  uploaderType,
-		pvbInformer:   pvbInformer,
-		wg:            sync.WaitGroup{},
-		result:        []*velerov1api.PodVolumeBackup{},
-		processedPVBs: sync.Map{},
+		ctx:          ctx,
+		repoLocker:   repoLocker,
+		repoEnsurer:  repoEnsurer,
+		crClient:     crClient,
+		uploaderType: uploaderType,
+		pvbInformer:  pvbInformer,
+		wg:           sync.WaitGroup{},
+		result:       []*velerov1api.PodVolumeBackup{},
 	}
 
 	b.handlerRegistration, _ = pvbInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, obj interface{}) {
-				pvb := obj.(*velerov1api.PodVolumeBackup)
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				pvb := newObj.(*velerov1api.PodVolumeBackup)
 
 				if pvb.GetLabels()[velerov1api.BackupUIDLabel] != string(backup.UID) {
 					return
@@ -135,14 +133,22 @@ func newBackupper(
 					return
 				}
 
-				// Generate a unique key for this PVB
-				pvbKey := pvb.Namespace + "/" + pvb.Name
+				// Check if the previous state was already in a final status
+				statusChangedToFinal := true
+				if oldPvb, ok := oldObj.(*velerov1api.PodVolumeBackup); ok {
+					// If the PVB was already in a final status, no need to call WaitGroup.Done()
+					if oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseCompleted ||
+						oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseFailed {
+						statusChangedToFinal = false
+					}
+				}
+
+				b.result = append(b.result, pvb)
 				
-				// Check if we've already processed this PVB in final status
-				// This prevents calling WaitGroup.Done() multiple times for the same PVB
-				// which could happen if the handler receives multiple update events with the PVB already in final status
-				if _, alreadyProcessed := b.processedPVBs.LoadOrStore(pvbKey, true); !alreadyProcessed {
-					b.result = append(b.result, pvb)
+				// Call WaitGroup.Done() once only when the PVB changes to final status the first time.
+				// This avoids the cases where the handler gets multiple update events whose PVBs are all in final status
+				// which causes panic with "negative WaitGroup counter" error
+				if statusChangedToFinal {
 					b.wg.Done()
 				}
 			},
