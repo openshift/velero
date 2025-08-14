@@ -144,7 +144,7 @@ func newBackupper(
 				}
 
 				b.result = append(b.result, pvb)
-				
+
 				// Call WaitGroup.Done() once only when the PVB changes to final status the first time.
 				// This avoids the cases where the handler gets multiple update events whose PVBs are all in final status
 				// which causes panic with "negative WaitGroup counter" error
