@@ -21,9 +21,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+	"github.com/vmware-tanzu/velero/pkg/builder"
 )
 
 func TestGetNodeSelectorFromVeleroServer(t *testing.T) {
@@ -579,6 +583,63 @@ func TestGetServiceAccountFromVeleroServer(t *testing.T) {
 	}
 }
 
+func TestGetImagePullSecretsFromVeleroServer(t *testing.T) {
+	tests := []struct {
+		name   string
+		deploy *appsv1.Deployment
+		want   []v1.LocalObjectReference
+	}{
+		{
+			name: "no image pull secrets",
+			deploy: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: v1.PodTemplateSpec{
+						Spec: v1.PodSpec{
+							ServiceAccountName: "",
+						},
+					},
+				},
+			},
+			want: nil,
+		},
+		{
+			name: "image pull secrets",
+			deploy: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: v1.PodTemplateSpec{
+						Spec: v1.PodSpec{
+							ImagePullSecrets: []v1.LocalObjectReference{
+								{
+									Name: "imagePullSecret1",
+								},
+								{
+									Name: "imagePullSecret2",
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []v1.LocalObjectReference{
+				{
+					Name: "imagePullSecret1",
+				},
+				{
+					Name: "imagePullSecret2",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := GetImagePullSecretsFromVeleroServer(test.deploy)
+
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestGetVeleroServerImage(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -758,4 +819,12 @@ func TestGetVeleroServerLabelValue(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestBSLIsAvailable(t *testing.T) {
+	availableBSL := builder.ForBackupStorageLocation("velero", "available").Phase(velerov1api.BackupStorageLocationPhaseAvailable).Result()
+	unavailableBSL := builder.ForBackupStorageLocation("velero", "unavailable").Phase(velerov1api.BackupStorageLocationPhaseUnavailable).Result()
+
+	assert.True(t, BSLIsAvailable(*availableBSL))
+	assert.False(t, BSLIsAvailable(*unavailableBSL))
 }
