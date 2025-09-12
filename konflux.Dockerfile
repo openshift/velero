@@ -1,5 +1,4 @@
-#@follow_tag(registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:rhel_9_golang_1.23)
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.23 AS builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.24 AS builder
 COPY . /workspace
 
 #######################################################################
@@ -34,15 +33,14 @@ USER 65534:65534
 # END                                                                 #
 #######################################################################
 
-#@follow_tag(registry.redhat.io/ubi9/ubi-minimal:latest)
-FROM registry.redhat.io/ubi9/ubi-minimal:latest
-RUN microdnf -y reinstall tzdata && microdnf clean all
-RUN microdnf -y install less nmap-ncat openssl && microdnf clean all
+FROM registry.redhat.io/ubi9/ubi:latest
+RUN dnf -y reinstall tzdata && dnf clean all
+RUN dnf -y install less nmap-ncat openssl && dnf clean all
 COPY --from=builder /workspace/bin/velero velero
 COPY --from=builder /workspace/bin/velero-restore-helper velero-restore-helper
 COPY --from=builder /workspace/bin/velero-helper velero-helper
 COPY --from=builder /workspace/restic/bin/restic /usr/bin/restic
-COPY LICENSE /licenses/
+COPY --from=builder /workspace/LICENSE /licenses/
 
 RUN mkdir -p /home/velero
 RUN chmod -R 777 /home/velero
