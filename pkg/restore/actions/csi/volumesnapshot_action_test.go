@@ -17,11 +17,10 @@ limitations under the License.
 package csi
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,6 +117,12 @@ func TestVSExecute(t *testing.T) {
 			expectErr: false,
 		},
 		{
+			name:      "VS doesn't have VSC in status",
+			vs:        builder.ForVolumeSnapshot("ns", "name").ObjectMeta(builder.WithAnnotations("1", "1")).Status().Result(),
+			restore:   builder.ForRestore("velero", "restore").NamespaceMappings("ns", "newNS").Result(),
+			expectErr: true,
+		},
+		{
 			name: "Normal case, VSC should be created",
 			vs: builder.ForVolumeSnapshot("ns", "vsName").ObjectMeta(
 				builder.WithAnnotationsMap(
@@ -149,7 +154,7 @@ func TestVSExecute(t *testing.T) {
 					if newNS, ok := test.restore.Spec.NamespaceMapping[test.vs.Namespace]; ok {
 						test.vs.SetNamespace(newNS)
 					}
-					require.NoError(t, p.crClient.Create(context.TODO(), test.vs))
+					require.NoError(t, p.crClient.Create(t.Context(), test.vs))
 				}
 			}
 

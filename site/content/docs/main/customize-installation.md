@@ -31,6 +31,9 @@ For some use cases, Velero node-agent requires to run under privileged mode. For
 
 If you've already run `velero install` without the `--use-node-agent` or `--privileged-node-agent` flag, you can run the same command again, including the `--use-node-agent` or `--privileged-node-agent` flag, to add CSI snapshot data movement to your existing install.
 
+## Customize the kubelet root path of the node-agent
+When installing with the `--use-node-agent` flag, the node-agent will mount the default kubelet paths `/var/lib/kubelet/pods` and `/var/lib/kubelet/plugins` (hostPath). To customize these kubelet mount paths, use the `--kubelet-root-dir` flag.
+
 ## Default Pod Volume backup to file system backup
 
 By default, `velero install` does not enable the use of File System Backup (FSB) to take backups of all pod volumes. You must apply an [annotation](file-system-backup.md/#using-opt-in-pod-volume-backup) to every pod which contains volumes for Velero to use FSB for the backup.
@@ -92,6 +95,53 @@ velero client config set colorized=false
 Note that if you specify `--colorized=true` as a CLI option it will override
 the config file setting.
 
+
+## Set priority class names for Velero components
+
+You can set priority class names for different Velero components during installation. This allows you to influence the scheduling and eviction behavior of Velero pods, which can be useful in clusters where resource contention is high.
+
+### Priority class configuration options:
+
+1. **Velero server deployment**: Use the `--server-priority-class-name` flag
+2. **Node agent daemonset**: Use the `--node-agent-priority-class-name` flag
+3. **Data mover pods**: Configure through the node-agent configmap (see below)
+4. **Maintenance jobs**: Configure through the repository maintenance job configmap (see below)
+
+```bash
+velero install \
+    --server-priority-class-name=<SERVER_PRIORITY_CLASS> \
+    --node-agent-priority-class-name=<NODE_AGENT_PRIORITY_CLASS>
+```
+
+### Configuring priority classes for data mover pods and maintenance jobs
+
+For data mover pods and maintenance jobs, priority classes are configured through ConfigMaps that must be created before installation:
+
+**Data mover pods** (via node-agent configmap):
+```bash
+kubectl create configmap node-agent-config -n velero --from-file=config.json=/dev/stdin <<EOF
+{
+    "priorityClassName": "low-priority"
+}
+EOF
+
+velero install --node-agent-configmap node-agent-config # ... other flags
+```
+
+**Maintenance jobs** (via repository maintenance job configmap):
+```bash
+kubectl create configmap repo-maintenance-job-config -n velero --from-file=config.json=/dev/stdin <<EOF
+{
+    "global": {
+        "priorityClassName": "low-priority"
+    }
+}
+EOF
+
+velero install --repo-maintenance-job-configmap repo-maintenance-job-config # ... other flags
+```
+
+Note that you need to create the priority classes before installing Velero. For more information on priority classes, see the [Kubernetes documentation on Pod Priority and Preemption](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/).
 
 ## Customize resource requests and limits
 
@@ -177,6 +227,12 @@ Additionally, you may want to update the the default File System Backup operatio
           - args:
             - --fs-backup-timeout=240m
     ```
+
+### Ephemeral-storage Requests and Limits
+
+Velero does not set ephemeral-storage limits during installation. Limits and requests can be edited after install for clusters that monitor and restrict ephemeral-storage usage. 
+
+Plugins will use ephemeral-storage. There needs to be a sufficient requests and limit set to account for plugins and the additional ephemeral-storage used to maintain credentials and cache space for datamovers. Object storage plugins will fit comfortably into an allocation of 100MB of ephemeral-storage.
 
 ## Configure more than one storage location for backups or volume snapshots
 
@@ -418,6 +474,37 @@ If you get an error like `complete:13: command not found: compdef`, then add the
   compinit
   ```
 
+## Advanced configuration through external ConfigMaps
+
+Velero supports to configure its some advanced behaviors by external ConfigMaps.
+Velero itself isn't responsible for creating and maintaining these ConfigMaps, instead the users should do that.
+
+By far, `velero install` supports the following parameters to specify the external ConfigMap names:
+* --backup-repository-configmap: [backup repository configuration document][15]
+* --node-agent-configmap: [node-agent concurrency configuration document][16], and there are some other documents specify other parts of node-agent-config.
+* --repo-maintenance-job-configmap: [repository maintenance configuration document][17]
+
+From v1.17, Velero adds verification for the ConfigMaps in CLI and server side, which means `velero install` CLI will fail and velero server and node-agent pod will exit if the specified ConfigMaps don't exist or are invalid.
+
+The change's aim is validating the ConfigMaps and fail early instead of finding the ConfigMaps are not valid during running data mover pod or repository maintenance job.
+
+However, there means the user cannot just running `velero install` CLI then get a working environment, when the external ConfigMaps are involved.
+
+The new workflow is:
+* Create the needed namespace: `kubectl create ns velero`
+* Add PSA labels to the namespace: `kubectl label ns velero pod-security.velero.io/enforce=privileged`
+* Create the needed ConfigMaps.
+* Run the `velero install` CLI:
+  ``` bash
+  velero install \
+    --provider aws \
+    ......
+    --backup-repository-configmap=... \
+    --node-agent-configmap=... \
+    --repo-maintenance-job-configmap=...
+  ```
+
+
 [1]: https://github.com/vmware-tanzu/velero/releases/latest
 [2]: namespace.md
 [3]: file-system-backup.md
@@ -431,3 +518,6 @@ If you get an error like `complete:13: command not found: compdef`, then add the
 [12]: csi-snapshot-data-movement.md
 [13]: performance-guidance.md
 [14]: repository-maintenance.md
+[15]: backup-repository-configuration.md
+[16]: node-agent-concurrency.md
+[17]: repository-maintenance.md

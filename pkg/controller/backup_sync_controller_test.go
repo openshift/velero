@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -61,6 +61,9 @@ func defaultLocation(namespace string) *velerov1api.BackupStorageLocation {
 				},
 			},
 			Default: true,
+		},
+		Status: velerov1api.BackupStorageLocationStatus{
+			Phase: velerov1api.BackupStorageLocationPhaseAvailable,
 		},
 	}
 }
@@ -141,6 +144,9 @@ func defaultLocationWithLongerLocationName(namespace string) *velerov1api.Backup
 				},
 			},
 		},
+		Status: velerov1api.BackupStorageLocationStatus{
+			Phase: velerov1api.BackupStorageLocationPhaseAvailable,
+		},
 	}
 }
 
@@ -176,6 +182,21 @@ var _ = Describe("Backup Sync Reconciler", func() {
 				name:      "no cloud backups",
 				namespace: "ns-1",
 				location:  defaultLocation("ns-1"),
+			},
+			{
+				name:      "unavailable BSL",
+				namespace: "ns-1",
+				location:  builder.ForBackupStorageLocation("ns-1", "default").Phase(velerov1api.BackupStorageLocationPhaseUnavailable).Result(),
+				cloudBackups: []*cloudBackupData{
+					{
+						backup:               builder.ForBackup("ns-1", "backup-1").Result(),
+						backupShouldSkipSync: true,
+					},
+					{
+						backup:               builder.ForBackup("ns-1", "backup-2").Result(),
+						backupShouldSkipSync: true,
+					},
+				},
 			},
 			{
 				name:      "normal case",

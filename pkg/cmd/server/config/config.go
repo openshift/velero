@@ -5,15 +5,17 @@ import (
 	"strings"
 	"time"
 
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
+	"github.com/vmware-tanzu/velero/internal/credentials"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/flag"
 	"github.com/vmware-tanzu/velero/pkg/constant"
 	podvolumeconfigs "github.com/vmware-tanzu/velero/pkg/podvolume/configs"
 	"github.com/vmware-tanzu/velero/pkg/types"
 	"github.com/vmware-tanzu/velero/pkg/uploader"
-	"github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 )
 
@@ -43,16 +45,6 @@ const (
 
 	defaultMaxConcurrentK8SConnections = 30
 	defaultDisableInformerCache        = false
-
-	// defaultCredentialsDirectory is the path on disk where credential
-	// files will be written to
-	defaultCredentialsDirectory = "/tmp/credentials"
-
-	DefaultKeepLatestMaintenanceJobs = 3
-	DefaultMaintenanceJobCPURequest  = "0"
-	DefaultMaintenanceJobCPULimit    = "0"
-	DefaultMaintenanceJobMemRequest  = "0"
-	DefaultMaintenanceJobMemLimit    = "0"
 
 	DefaultItemBlockWorkerCount = 1
 )
@@ -125,6 +117,7 @@ var (
 			"secrets",
 			"configmaps",
 			"limitranges",
+			"priorityclasses",
 			"pods",
 			// we fully qualify replicasets.apps because prior to Kubernetes 1.16, replicasets also
 			// existed in the extensions API group, but we back up replicasets from "apps" so we want
@@ -153,6 +146,7 @@ type Config struct {
 	PodVolumeOperationTimeout      time.Duration
 	ResourceTerminatingTimeout     time.Duration
 	DefaultBackupTTL               time.Duration
+	DefaultVGSLabelKey             string
 	StoreValidationFrequency       time.Duration
 	DefaultCSISnapshotTimeout      time.Duration
 	DefaultItemOperationTimeout    time.Duration
@@ -179,8 +173,6 @@ type Config struct {
 	CredentialsDirectory           string
 	BackupRepoConfig               string
 	RepoMaintenanceJobConfig       string
-	PodResources                   kube.PodResources
-	KeepLatestMaintenanceJobs      int
 	ItemBlockWorkerCount           int
 }
 
@@ -192,6 +184,7 @@ func GetDefaultConfig() *Config {
 		DefaultVolumeSnapshotLocations: flag.NewMap().WithKeyValueDelimiter(':'),
 		BackupSyncPeriod:               defaultBackupSyncPeriod,
 		DefaultBackupTTL:               defaultBackupTTL,
+		DefaultVGSLabelKey:             velerov1api.DefaultVGSLabelKey,
 		DefaultCSISnapshotTimeout:      defaultCSISnapshotTimeout,
 		DefaultItemOperationTimeout:    defaultItemOperationTimeout,
 		ResourceTimeout:                resourceTimeout,
@@ -206,20 +199,13 @@ func GetDefaultConfig() *Config {
 		LogLevel:                       logging.LogLevelFlag(logrus.InfoLevel),
 		LogFormat:                      logging.NewFormatFlag(),
 		DefaultVolumesToFsBackup:       podvolumeconfigs.DefaultVolumesToFsBackup,
-		UploaderType:                   uploader.ResticType,
+		UploaderType:                   uploader.KopiaType,
 		MaxConcurrentK8SConnections:    defaultMaxConcurrentK8SConnections,
 		DefaultSnapshotMoveData:        false,
 		DisableInformerCache:           defaultDisableInformerCache,
 		ScheduleSkipImmediately:        false,
-		CredentialsDirectory:           defaultCredentialsDirectory,
-		PodResources: kube.PodResources{
-			CPURequest:    DefaultMaintenanceJobCPULimit,
-			CPULimit:      DefaultMaintenanceJobCPURequest,
-			MemoryRequest: DefaultMaintenanceJobMemRequest,
-			MemoryLimit:   DefaultMaintenanceJobMemLimit,
-		},
-		KeepLatestMaintenanceJobs: DefaultKeepLatestMaintenanceJobs,
-		ItemBlockWorkerCount:      DefaultItemBlockWorkerCount,
+		CredentialsDirectory:           credentials.DefaultStoreDirectory(),
+		ItemBlockWorkerCount:           DefaultItemBlockWorkerCount,
 	}
 
 	return config
@@ -243,6 +229,7 @@ func (c *Config) BindFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&c.ProfilerAddress, "profiler-address", c.ProfilerAddress, "The address to expose the pprof profiler.")
 	flags.DurationVar(&c.ResourceTerminatingTimeout, "terminating-resource-timeout", c.ResourceTerminatingTimeout, "How long to wait on persistent volumes and namespaces to terminate during a restore before timing out.")
 	flags.DurationVar(&c.DefaultBackupTTL, "default-backup-ttl", c.DefaultBackupTTL, "How long to wait by default before backups can be garbage collected.")
+	flags.StringVar(&c.DefaultVGSLabelKey, "volume-group-snapshot-label-key", c.DefaultVGSLabelKey, "Label key for grouping PVCs into VolumeGroupSnapshot. Default value is 'velero.io/volume-group'")
 	flags.DurationVar(&c.RepoMaintenanceFrequency, "default-repo-maintain-frequency", c.RepoMaintenanceFrequency, "How often 'maintain' is run for backup repositories by default.")
 	flags.DurationVar(&c.GarbageCollectionFrequency, "garbage-collection-frequency", c.GarbageCollectionFrequency, "How often garbage collection is run for expired backups.")
 	flags.DurationVar(&c.ItemOperationSyncFrequency, "item-operation-sync-frequency", c.ItemOperationSyncFrequency, "How often to check status on backup/restore operations after backup/restore processing. Default is 10 seconds")
@@ -256,36 +243,6 @@ func (c *Config) BindFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&c.ScheduleSkipImmediately, "schedule-skip-immediately", c.ScheduleSkipImmediately, "Skip the first scheduled backup immediately after creating a schedule. Default is false (don't skip).")
 	flags.Var(&c.DefaultVolumeSnapshotLocations, "default-volume-snapshot-locations", "List of unique volume providers and default volume snapshot location (provider1:location-01,provider2:location-02,...)")
 
-	flags.IntVar(
-		&c.KeepLatestMaintenanceJobs,
-		"keep-latest-maintenance-jobs",
-		c.KeepLatestMaintenanceJobs,
-		"Number of latest maintenance jobs to keep each repository. Optional.",
-	)
-	flags.StringVar(
-		&c.PodResources.CPURequest,
-		"maintenance-job-cpu-request",
-		c.PodResources.CPURequest,
-		"CPU request for maintenance job. Default is no limit.",
-	)
-	flags.StringVar(
-		&c.PodResources.MemoryRequest,
-		"maintenance-job-mem-request",
-		c.PodResources.MemoryRequest,
-		"Memory request for maintenance job. Default is no limit.",
-	)
-	flags.StringVar(
-		&c.PodResources.CPULimit,
-		"maintenance-job-cpu-limit",
-		c.PodResources.CPULimit,
-		"CPU limit for maintenance job. Default is no limit.",
-	)
-	flags.StringVar(
-		&c.PodResources.MemoryLimit,
-		"maintenance-job-mem-limit",
-		c.PodResources.MemoryLimit,
-		"Memory limit for maintenance job. Default is no limit.",
-	)
 	flags.StringVar(
 		&c.BackupRepoConfig,
 		"backup-repository-configmap",

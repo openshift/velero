@@ -17,11 +17,10 @@ limitations under the License.
 package actions
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
+	corev1api "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,13 +38,13 @@ import (
 func TestDataUploadRetrieveActionExectue(t *testing.T) {
 	scheme := runtime.NewScheme()
 	velerov1.AddToScheme(scheme)
-	corev1.AddToScheme(scheme)
+	corev1api.AddToScheme(scheme)
 
 	tests := []struct {
 		name                     string
 		dataUpload               *velerov2alpha1.DataUpload
 		restore                  *velerov1.Restore
-		expectedDataUploadResult *corev1.ConfigMap
+		expectedDataUploadResult *corev1api.ConfigMap
 		expectedErr              string
 		runtimeScheme            *runtime.Scheme
 		veleroObjs               []runtime.Object
@@ -110,8 +109,8 @@ func TestDataUploadRetrieveActionExectue(t *testing.T) {
 			}
 
 			if tc.expectedDataUploadResult != nil {
-				var cmList corev1.ConfigMapList
-				err := fakeClient.List(context.Background(), &cmList, &client.ListOptions{
+				var cmList corev1api.ConfigMapList
+				err := fakeClient.List(t.Context(), &cmList, &client.ListOptions{
 					LabelSelector: labels.SelectorFromSet(map[string]string{
 						velerov1.RestoreUIDLabel:       "testingUID",
 						velerov1.PVCNamespaceNameLabel: label.GetValidName(tc.dataUpload.Spec.SourceNamespace + "." + tc.dataUpload.Spec.SourcePVC),
