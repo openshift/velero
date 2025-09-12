@@ -39,10 +39,12 @@ import (
 	. "github.com/vmware-tanzu/velero/test/e2e/basic/resources-check"
 	. "github.com/vmware-tanzu/velero/test/e2e/bsl-mgmt"
 	. "github.com/vmware-tanzu/velero/test/e2e/migration"
+	. "github.com/vmware-tanzu/velero/test/e2e/nodeagentconfig"
 	. "github.com/vmware-tanzu/velero/test/e2e/parallelfilesdownload"
 	. "github.com/vmware-tanzu/velero/test/e2e/parallelfilesupload"
 	. "github.com/vmware-tanzu/velero/test/e2e/privilegesmgmt"
 	. "github.com/vmware-tanzu/velero/test/e2e/pv-backup"
+	. "github.com/vmware-tanzu/velero/test/e2e/repomaintenance"
 	. "github.com/vmware-tanzu/velero/test/e2e/resource-filtering"
 	. "github.com/vmware-tanzu/velero/test/e2e/resourcemodifiers"
 	. "github.com/vmware-tanzu/velero/test/e2e/resourcepolicies"
@@ -55,6 +57,7 @@ import (
 
 func init() {
 	test.VeleroCfg.Options = install.Options{}
+	test.VeleroCfg.BackupRepoConfigMap = test.BackupRepositoryConfigName // Set to the default value
 	flag.StringVar(
 		&test.VeleroCfg.CloudProvider,
 		"cloud-provider",
@@ -343,6 +346,37 @@ func init() {
 		false,
 		"a switch for installing vSphere plugin.",
 	)
+	flag.IntVar(
+		&test.VeleroCfg.ItemBlockWorkerCount,
+		"item-block-worker-count",
+		1,
+		"Velero backup's item block worker count.",
+	)
+	flag.StringVar(
+		&test.VeleroCfg.ImageRegistryProxy,
+		"image-registry-proxy",
+		"",
+		"The image registry proxy, e.g. when the DockerHub access limitation is reached, can use available proxy to replace. Default is nil.",
+	)
+	flag.StringVar(
+		&test.VeleroCfg.WorkerOS,
+		"worker-os",
+		"linux",
+		"test k8s worker node OS version, should be either linux or windows.",
+	)
+
+	flag.StringVar(
+		&test.VeleroCfg.PodLabels,
+		"pod-labels",
+		"",
+		"comma-separated list of key=value labels to add to the Velero pod",
+	)
+	flag.StringVar(
+		&test.VeleroCfg.ServiceAccountAnnotations,
+		"sa-annotations",
+		"",
+		"comma-separated list of key=value annotations to add to Velero service account",
+	)
 }
 
 // Add label [SkipVanillaZfs]:
@@ -366,25 +400,25 @@ var _ = Describe(
 // Test backup and restore of Kibishii using restic
 var _ = Describe(
 	"Velero tests on cluster using the plugin provider for object storage and Restic for volume backups",
-	Label("Basic", "Restic"),
+	Label("Basic", "Restic", "AdditionalBSL"),
 	BackupRestoreWithRestic,
 )
 
 var _ = Describe(
 	"Velero tests on cluster using the plugin provider for object storage and snapshots for volume backups",
-	Label("Basic", "Snapshot", "SkipVanillaZfs"),
+	Label("Basic", "Snapshot", "SkipVanillaZfs", "AdditionalBSL"),
 	BackupRestoreWithSnapshots,
 )
 
 var _ = Describe(
 	"Velero tests on cluster using the plugin provider for object storage and snapshots for volume backups",
-	Label("Basic", "Snapshot", "RetainPV"),
+	Label("Basic", "Snapshot", "RetainPV", "AdditionalBSL"),
 	BackupRestoreRetainedPVWithSnapshots,
 )
 
 var _ = Describe(
 	"Velero tests on cluster using the plugin provider for object storage and snapshots for volume backups",
-	Label("Basic", "Restic", "RetainPV"),
+	Label("Basic", "Restic", "RetainPV", "AdditionalBSL"),
 	BackupRestoreRetainedPVWithRestic,
 )
 
@@ -565,12 +599,12 @@ var _ = Describe(
 
 var _ = Describe(
 	"Local backups will be deleted once the corresponding backup storage location is deleted",
-	Label("BSL", "Deletion", "Snapshot", "SkipVanillaZfs"),
+	Label("BSL", "Deletion", "Snapshot", "SkipVanillaZfs", "AdditionalBSL"),
 	BslDeletionWithSnapshots,
 )
 var _ = Describe(
 	"Local backups and Restic repos will be deleted once the corresponding backup storage location is deleted",
-	Label("BSL", "Deletion", "Restic"),
+	Label("BSL", "Deletion", "Restic", "AdditionalBSL"),
 	BslDeletionWithRestic,
 )
 
@@ -608,12 +642,12 @@ var _ = Describe(
 
 var _ = Describe(
 	"Backup resources should follow the specific order in schedule",
-	Label("PVBackup", "OptIn"),
+	Label("PVBackup", "OptIn", "FSB"),
 	OptInPVBackupTest,
 )
 var _ = Describe(
 	"Backup resources should follow the specific order in schedule",
-	Label("PVBackup", "OptOut"),
+	Label("PVBackup", "OptOut", "FSB"),
 	OptOutPVBackupTest,
 )
 
@@ -626,6 +660,24 @@ var _ = Describe(
 	"Velero test on parallel files download",
 	Label("UploaderConfig", "ParallelFilesDownload"),
 	ParallelFilesDownloadTest,
+)
+
+var _ = Describe(
+	"Test Repository Maintenance Job Configuration's global part",
+	Label("RepoMaintenance", "LongTime"),
+	GlobalRepoMaintenanceTest,
+)
+
+var _ = Describe(
+	"Test Repository Maintenance Job Configuration's specific part",
+	Label("RepoMaintenance", "LongTime"),
+	SpecificRepoMaintenanceTest,
+)
+
+var _ = Describe(
+	"Test node agent config's LoadAffinity part",
+	Label("NodeAgentConfig", "LoadAffinity"),
+	LoadAffinities,
 )
 
 func GetKubeConfigContext() error {
@@ -687,6 +739,8 @@ func TestE2e(t *testing.T) {
 		t.FailNow()
 	}
 
+	veleroutil.UpdateImagesMatrixByProxy(test.VeleroCfg.ImageRegistryProxy)
+
 	RegisterFailHandler(Fail)
 	testSuitePassed = RunSpecs(t, "E2e Suite")
 }
@@ -705,6 +759,12 @@ var _ = BeforeSuite(func() {
 			),
 		).To(Succeed())
 	}
+
+	By("Install PriorityClasses for E2E.")
+	Expect(veleroutil.CreatePriorityClasses(
+		context.Background(),
+		test.VeleroCfg.ClientToInstallVelero.Kubebuilder,
+	)).To(Succeed())
 
 	if test.InstallVelero {
 		By("Install test resources before testing")
@@ -730,6 +790,8 @@ var _ = AfterSuite(func() {
 			test.StorageClassName,
 		),
 	).To(Succeed())
+
+	By("Delete PriorityClasses created by E2E")
 	Expect(
 		k8s.DeleteStorageClass(
 			ctx,
@@ -748,6 +810,11 @@ var _ = AfterSuite(func() {
 			),
 		).To(Succeed())
 	}
+
+	Expect(veleroutil.DeletePriorityClasses(
+		ctx,
+		test.VeleroCfg.ClientToInstallVelero.Kubebuilder,
+	)).To(Succeed())
 
 	// If the Velero is installed during test, and the FailFast is not enabled,
 	// uninstall Velero. If not, either Velero is not installed, or kept it for debug on failure.

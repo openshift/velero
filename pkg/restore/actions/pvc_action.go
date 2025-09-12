@@ -22,7 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -125,17 +125,8 @@ func (p *PVCAction) Execute(input *velero.RestoreItemActionExecuteInput) (*veler
 			pvc.Annotations[AnnSelectedNode] = newNode
 			log.Infof("Updating selected-node to %s from %s", newNode, node)
 		} else {
-			// configMap doesn't have node-mapping
-			// Let's check if node exists or not
-			exists, err := isNodeExist(p.nodeClient, node)
-			if err != nil {
-				return nil, errors.Wrapf(err, "error checking node %s existence", node)
-			}
-
-			if !exists {
-				log.Infof("Clearing selected-node because node named %s does not exist", node)
-				delete(pvc.Annotations, AnnSelectedNode)
-			}
+			log.Info("Clearing PVC selected-node annotation")
+			delete(pvc.Annotations, AnnSelectedNode)
 		}
 	}
 
@@ -196,7 +187,7 @@ func getNewNodeFromConfigMap(client corev1client.ConfigMapInterface, node string
 func isNodeExist(nodeClient corev1client.NodeInterface, name string) (bool, error) {
 	_, err := nodeClient.Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return false, nil
 		}
 		return false, err

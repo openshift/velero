@@ -24,7 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	v1 "k8s.io/api/core/v1"
+	corev1api "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -42,6 +42,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/repository"
 	"github.com/vmware-tanzu/velero/pkg/uploader"
 	"github.com/vmware-tanzu/velero/pkg/util/filesystem"
+	"github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 
 	ctlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -76,7 +77,7 @@ func NewRestoreCommand(f client.Factory) *cobra.Command {
 			f.SetBasename(fmt.Sprintf("%s-%s", c.Parent().Name(), c.Name()))
 			s, err := newdataMoverRestore(logger, f, config)
 			if err != nil {
-				exitWithMessage(logger, false, "Failed to create data mover restore, %v", err)
+				kube.ExitPodWithMessage(logger, false, "Failed to create data mover restore, %v", err)
 			}
 
 			s.run()
@@ -134,7 +135,7 @@ func newdataMoverRestore(logger logrus.FieldLogger, factory client.Factory, conf
 		return nil, errors.Wrap(err, "error to add velero v2alpha1 scheme")
 	}
 
-	if err := v1.AddToScheme(scheme); err != nil {
+	if err := corev1api.AddToScheme(scheme); err != nil {
 		cancelFunc()
 		return nil, errors.Wrap(err, "error to add core v1 scheme")
 	}
@@ -145,7 +146,7 @@ func newdataMoverRestore(logger logrus.FieldLogger, factory client.Factory, conf
 	cacheOption := ctlcache.Options{
 		Scheme: scheme,
 		ByObject: map[ctlclient.Object]ctlcache.ByObject{
-			&v1.Pod{}: {
+			&corev1api.Pod{}: {
 				Field: fields.Set{"spec.nodeName": nodeName}.AsSelector(),
 			},
 			&velerov2alpha1api.DataDownload{}: {
@@ -263,7 +264,7 @@ func (s *dataMoverRestore) createDataPathService() (dataPathService, error) {
 	credentialFileStore, err := funcNewCredentialFileStore(
 		s.client,
 		s.namespace,
-		defaultCredentialsDirectory,
+		credentials.DefaultStoreDirectory(),
 		filesystem.NewFileSystem(),
 	)
 	if err != nil {

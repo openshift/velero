@@ -17,17 +17,18 @@ limitations under the License.
 package csi
 
 import (
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
+	"fmt"
+
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
+	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	plugincommon "github.com/vmware-tanzu/velero/pkg/plugin/framework/common"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	"github.com/vmware-tanzu/velero/pkg/util"
@@ -108,20 +109,23 @@ func (p *volumeSnapshotRestoreItemAction) Execute(
 		return nil, errors.WithStack(err)
 	}
 
-	// Adding VS's VolumeSnapshotContent
-	additionalItem := velero.ResourceIdentifier{
-		GroupResource: schema.GroupResource{
-			Group:    "snapshot.storage.k8s.io",
-			Resource: "volumesnapshotcontents",
-		},
-		Name: *vsFromBackup.Status.BoundVolumeSnapshotContentName,
+	if vsFromBackup.Status == nil ||
+		vsFromBackup.Status.BoundVolumeSnapshotContentName == nil {
+		p.log.Errorf("VS %s doesn't have bound VSC", vsFromBackup.Name)
+		return nil, fmt.Errorf("VS %s doesn't have bound VSC", vsFromBackup.Name)
 	}
 
-	p.log.Infof("Returning from VolumeSnapshotRestoreItemAction with VolumeSnapshotContent as an additional item")
+	vsc := velero.ResourceIdentifier{
+		GroupResource: kuberesource.VolumeSnapshotContents,
+		Name:          *vsFromBackup.Status.BoundVolumeSnapshotContentName,
+	}
+
+	p.log.Infof(`Returning from VolumeSnapshotRestoreItemAction with 
+		VolumeSnapshotContent in additionalItems`)
 
 	return &velero.RestoreItemActionExecuteOutput{
 		UpdatedItem:     &unstructured.Unstructured{Object: vsMap},
-		AdditionalItems: []velero.ResourceIdentifier{additionalItem},
+		AdditionalItems: []velero.ResourceIdentifier{vsc},
 	}, nil
 }
 

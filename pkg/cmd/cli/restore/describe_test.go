@@ -17,13 +17,13 @@ limitations under the License.
 package restore
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/rest"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -43,7 +43,7 @@ func TestNewDescribeCommand(t *testing.T) {
 
 	clientConfig := rest.Config{}
 	kbClient := test.NewFakeControllerRuntimeClient(t)
-	kbClient.Create(context.Background(), testRestore, &controllerclient.CreateOptions{})
+	kbClient.Create(t.Context(), testRestore, &controllerclient.CreateOptions{})
 
 	f.On("ClientConfig").Return(&clientConfig, nil)
 	f.On("Namespace").Return(cmdtest.VeleroNameSpace)
@@ -58,7 +58,7 @@ func TestNewDescribeCommand(t *testing.T) {
 
 	c.SetArgs([]string{restoreName})
 	e := c.Execute()
-	assert.NoError(t, e)
+	require.NoError(t, e)
 
 	if os.Getenv(cmdtest.CaptureFlag) == "1" {
 		return

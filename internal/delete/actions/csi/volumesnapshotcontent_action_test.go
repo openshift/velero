@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -194,13 +194,12 @@ func TestCheckVSCReadiness(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx := context.TODO()
 			crClient := velerotest.NewFakeControllerRuntimeClient(t)
 			if test.createVSC {
-				require.NoError(t, crClient.Create(ctx, test.vsc))
+				require.NoError(t, crClient.Create(t.Context(), test.vsc))
 			}
 
-			ready, err := checkVSCReadiness(ctx, test.vsc, crClient)
+			ready, err := checkVSCReadiness(t.Context(), test.vsc, crClient)
 			require.Equal(t, test.ready, ready)
 			if test.expectErr {
 				require.Error(t, err)

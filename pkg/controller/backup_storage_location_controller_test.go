@@ -17,15 +17,17 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"testing"
 	"time"
+
+	"github.com/vmware-tanzu/velero/pkg/metrics"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -91,6 +93,7 @@ var _ = Describe("Backup Storage Location Reconciler", func() {
 			},
 			newPluginManager:  func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
 			backupStoreGetter: NewFakeObjectBackupStoreGetter(backupStores),
+			metrics:           metrics.NewServerMetrics(),
 			log:               velerotest.NewLogger(),
 		}
 
@@ -156,6 +159,7 @@ var _ = Describe("Backup Storage Location Reconciler", func() {
 			},
 			newPluginManager:  func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
 			backupStoreGetter: NewFakeObjectBackupStoreGetter(backupStores),
+			metrics:           metrics.NewServerMetrics(),
 			log:               velerotest.NewLogger(),
 		}
 
@@ -238,12 +242,13 @@ func TestEnsureSingleDefaultBSL(t *testing.T) {
 
 	for _, test := range tests {
 		// Setup reconciler
-		assert.NoError(t, velerov1api.AddToScheme(scheme.Scheme))
+		require.NoError(t, velerov1api.AddToScheme(scheme.Scheme))
 		t.Run(test.name, func(t *testing.T) {
 			r := &backupStorageLocationReconciler{
-				ctx:                       context.Background(),
+				ctx:                       t.Context(),
 				client:                    fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(&test.locations).Build(),
 				defaultBackupLocationInfo: test.defaultBackupInfo,
+				metrics:                   metrics.NewServerMetrics(),
 				log:                       velerotest.NewLogger(),
 			}
 			defaultFound, err := r.ensureSingleDefaultBSL(test.locations)
@@ -282,16 +287,17 @@ func TestBSLReconcile(t *testing.T) {
 	pluginManager.On("CleanupClients").Return(nil)
 	for _, test := range tests {
 		// Setup reconciler
-		assert.NoError(t, velerov1api.AddToScheme(scheme.Scheme))
+		require.NoError(t, velerov1api.AddToScheme(scheme.Scheme))
 		t.Run(test.name, func(t *testing.T) {
 			r := &backupStorageLocationReconciler{
-				ctx:              context.Background(),
+				ctx:              t.Context(),
 				client:           fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(&test.locationList).Build(),
 				newPluginManager: func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
+				metrics:          metrics.NewServerMetrics(),
 				log:              velerotest.NewLogger(),
 			}
 
-			result, err := r.Reconcile(context.TODO(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: velerov1api.DefaultNamespace, Name: "location-1"}})
+			result, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: velerov1api.DefaultNamespace, Name: "location-1"}})
 			assert.Equal(t, test.expectedError, err)
 			assert.Equal(t, ctrl.Result{}, result)
 		})

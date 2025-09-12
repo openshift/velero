@@ -17,25 +17,27 @@ limitations under the License.
 package exposer
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	appsv1api "k8s.io/api/apps/v1"
+	corev1api "k8s.io/api/core/v1"
+	storagev1api "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	clientTesting "k8s.io/client-go/testing"
 
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1api "k8s.io/api/core/v1"
-	clientTesting "k8s.io/client-go/testing"
+	"github.com/vmware-tanzu/velero/pkg/util/kube"
 )
 
 func TestRestoreExpose(t *testing.T) {
+	scName := "fake-sc"
 	restore := &velerov1.Restore{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: velerov1.SchemeGroupVersion.String(),
@@ -53,6 +55,15 @@ func TestRestoreExpose(t *testing.T) {
 			Namespace: "fake-ns",
 			Name:      "fake-target-pvc",
 		},
+		Spec: corev1api.PersistentVolumeClaimSpec{
+			StorageClassName: &scName,
+		},
+	}
+
+	storageClass := &storagev1api.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "fake-sc",
+		},
 	}
 
 	targetPVCObjBound := &corev1api.PersistentVolumeClaim{
@@ -65,16 +76,16 @@ func TestRestoreExpose(t *testing.T) {
 		},
 	}
 
-	daemonSet := &appsv1.DaemonSet{
+	daemonSet := &appsv1api.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "velero",
 			Name:      "node-agent",
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "DaemonSet",
-			APIVersion: appsv1.SchemeGroupVersion.String(),
+			APIVersion: appsv1api.SchemeGroupVersion.String(),
 		},
-		Spec: appsv1.DaemonSetSpec{
+		Spec: appsv1api.DaemonSetSpec{
 			Template: corev1api.PodTemplateSpec{
 				Spec: corev1api.PodSpec{
 					Containers: []corev1api.Container{
@@ -110,6 +121,7 @@ func TestRestoreExpose(t *testing.T) {
 			ownerRestore:    restore,
 			kubeClientObj: []runtime.Object{
 				targetPVCObjBound,
+				storageClass,
 			},
 			err: "Target PVC fake-ns/fake-target-pvc has already been bound, abort",
 		},
@@ -121,6 +133,7 @@ func TestRestoreExpose(t *testing.T) {
 			kubeClientObj: []runtime.Object{
 				targetPVCObj,
 				daemonSet,
+				storageClass,
 			},
 			kubeReactors: []reactor{
 				{
@@ -141,6 +154,7 @@ func TestRestoreExpose(t *testing.T) {
 			kubeClientObj: []runtime.Object{
 				targetPVCObj,
 				daemonSet,
+				storageClass,
 			},
 			kubeReactors: []reactor{
 				{
@@ -179,13 +193,19 @@ func TestRestoreExpose(t *testing.T) {
 				}
 			}
 
-			err := exposer.Expose(context.Background(), ownerObject, GenericRestoreExposeParam{
-				TargetPVCName:    test.targetPVCName,
-				TargetNamespace:  test.targetNamespace,
-				HostingPodLabels: map[string]string{},
-				Resources:        corev1api.ResourceRequirements{},
-				ExposeTimeout:    time.Millisecond})
-			assert.EqualError(t, err, test.err)
+			err := exposer.Expose(
+				t.Context(),
+				ownerObject,
+				GenericRestoreExposeParam{
+					TargetPVCName:    test.targetPVCName,
+					TargetNamespace:  test.targetNamespace,
+					HostingPodLabels: map[string]string{},
+					Resources:        corev1api.ResourceRequirements{},
+					ExposeTimeout:    time.Millisecond,
+					LoadAffinity:     nil,
+				},
+			)
+			require.EqualError(t, err, test.err)
 		})
 	}
 }
@@ -419,7 +439,7 @@ func TestRebindVolume(t *testing.T) {
 
 			hookCount = 0
 
-			err := exposer.RebindVolume(context.Background(), ownerObject, test.targetPVCName, test.targetNamespace, time.Millisecond)
+			err := exposer.RebindVolume(t.Context(), ownerObject, test.targetPVCName, test.targetNamespace, time.Millisecond)
 			assert.EqualError(t, err, test.err)
 		})
 	}
@@ -502,7 +522,7 @@ func TestRestorePeekExpose(t *testing.T) {
 				}
 			}
 
-			err := exposer.PeekExposed(context.Background(), ownerObject)
+			err := exposer.PeekExposed(t.Context(), ownerObject)
 			if test.err == "" {
 				assert.NoError(t, err)
 			} else {
@@ -761,8 +781,146 @@ end diagnose restore exposer`,
 				}
 			}
 
-			diag := e.DiagnoseExpose(context.Background(), ownerObject)
+			diag := e.DiagnoseExpose(t.Context(), ownerObject)
 			assert.Equal(t, test.expected, diag)
+		})
+	}
+}
+
+func TestCreateRestorePod(t *testing.T) {
+	scName := "storage-class-01"
+
+	daemonSet := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "velero",
+			Name:      "node-agent",
+		},
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "DaemonSet",
+			APIVersion: appsv1api.SchemeGroupVersion.String(),
+		},
+		Spec: appsv1api.DaemonSetSpec{
+			Template: corev1api.PodTemplateSpec{
+				Spec: corev1api.PodSpec{
+					Containers: []corev1api.Container{
+						{
+							Image: "fake-image",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	daemonSetWin := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "velero",
+			Name:      "node-agent-windows",
+		},
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "DaemonSet",
+			APIVersion: appsv1api.SchemeGroupVersion.String(),
+		},
+		Spec: appsv1api.DaemonSetSpec{
+			Template: corev1api.PodTemplateSpec{
+				Spec: corev1api.PodSpec{
+					Containers: []corev1api.Container{
+						{
+							Image: "fake-image",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	targetPVCObj := &corev1api.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "fake-ns",
+			Name:      "fake-target-pvc",
+		},
+		Spec: corev1api.PersistentVolumeClaimSpec{
+			StorageClassName: &scName,
+		},
+	}
+
+	tests := []struct {
+		name          string
+		kubeClientObj []runtime.Object
+		selectedNode  string
+		affinity      *kube.LoadAffinity
+		nodeOS        string
+		expectedPod   *corev1api.Pod
+	}{
+		{
+			name:          "linux",
+			kubeClientObj: []runtime.Object{daemonSet, daemonSetWin, targetPVCObj},
+			selectedNode:  "",
+			affinity: &kube.LoadAffinity{
+				NodeSelector: metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/os",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"linux"},
+						},
+					},
+				},
+				StorageClass: scName,
+			},
+			nodeOS: "linux",
+		},
+		{
+			name:          "windows",
+			kubeClientObj: []runtime.Object{daemonSet, daemonSetWin, targetPVCObj},
+			selectedNode:  "",
+			affinity: &kube.LoadAffinity{
+				NodeSelector: metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "kubernetes.io/os",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"windows"},
+						},
+					},
+				},
+				StorageClass: scName,
+			},
+			nodeOS: "windows",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fakeKubeClient := fake.NewSimpleClientset(test.kubeClientObj...)
+
+			exposer := genericRestoreExposer{
+				kubeClient: fakeKubeClient,
+				log:        velerotest.NewLogger(),
+			}
+
+			pod, err := exposer.createRestorePod(
+				t.Context(),
+				corev1api.ObjectReference{
+					Namespace: velerov1.DefaultNamespace,
+					Name:      "data-download",
+				},
+				targetPVCObj,
+				time.Second*3,
+				nil,
+				nil,
+				nil,
+				test.selectedNode,
+				corev1api.ResourceRequirements{},
+				test.nodeOS,
+				test.affinity,
+				"", // priority class name
+			)
+
+			require.NoError(t, err)
+			if test.expectedPod != nil {
+				assert.Equal(t, test.expectedPod, pod)
+			}
 		})
 	}
 }
