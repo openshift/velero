@@ -17,7 +17,6 @@ limitations under the License.
 package backend
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kopia/kopia/repo"
@@ -152,7 +151,7 @@ func TestSetupNewRepoAlgorithms(t *testing.T) {
 			for key, value := range tc.envVars {
 				t.Setenv(key, value)
 			}
-			ret := SetupNewRepositoryOptions(context.Background(), tc.flags)
+			ret := SetupNewRepositoryOptions(t.Context(), tc.flags)
 			assert.Equal(t, tc.expected, ret)
 		})
 	}
