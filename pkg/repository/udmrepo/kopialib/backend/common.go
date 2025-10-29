@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	defaultCacheLimitMB    = 5000
+	DefaultCacheLimitMB    = 5000
 	maxCacheDurationSecond = 30
 )
 
@@ -80,7 +80,8 @@ func SetupNewRepositoryOptions(ctx context.Context, flags map[string]string) rep
 
 // SetupConnectOptions setups the options when connecting to an existing Kopia repository
 func SetupConnectOptions(ctx context.Context, repoOptions udmrepo.RepoOptions) repo.ConnectOptions {
-	cacheLimit := optionalHaveIntWithDefault(ctx, udmrepo.StoreOptionCacheLimit, repoOptions.StorageOptions, defaultCacheLimitMB) << 20
+	cacheLimit := optionalHaveIntWithDefault(ctx, udmrepo.StoreOptionCacheLimit, repoOptions.StorageOptions, DefaultCacheLimitMB) << 20
+	cacheDir := optionalHaveString(udmrepo.StoreOptionCacheDir, repoOptions.StorageOptions)
 
 	// 80% for data cache and 20% for metadata cache and align to KB
 	dataCacheLimit := (cacheLimit / 5 * 4) >> 10
@@ -88,6 +89,7 @@ func SetupConnectOptions(ctx context.Context, repoOptions udmrepo.RepoOptions) r
 
 	return repo.ConnectOptions{
 		CachingOptions: content.CachingOptions{
+			CacheDirectory: cacheDir,
 			// softLimit 80%
 			ContentCacheSizeBytes:  (dataCacheLimit / 5 * 4) << 10,
 			MetadataCacheSizeBytes: (metadataCacheLimit / 5 * 4) << 10,
