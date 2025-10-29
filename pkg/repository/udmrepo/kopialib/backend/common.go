@@ -18,8 +18,6 @@ package backend
 
 import (
 	"context"
-	"os"
-	"slices"
 	"time"
 
 	"github.com/kopia/kopia/repo"
@@ -35,7 +33,7 @@ import (
 )
 
 const (
-	defaultCacheLimitMB    = 5000
+	DefaultCacheLimitMB    = 5000
 	maxCacheDurationSecond = 30
 )
 
@@ -49,28 +47,16 @@ func setupLimits(ctx context.Context, flags map[string]string) throttling.Limits
 	}
 }
 
-// Helper function to choose between environment variable and default kopia algorithm value
-func getKopiaAlgorithm(key, envKey string, flags map[string]string, supportedAlgorithms []string, defaultValue string) string {
-	algorithm := os.Getenv(envKey)
-	if len(algorithm) > 0 {
-		if slices.Contains(supportedAlgorithms, algorithm) {
-			return algorithm
-		}
-	}
-
-	return optionalHaveStringWithDefault(key, flags, defaultValue)
-}
-
 // SetupNewRepositoryOptions setups the options when creating a new Kopia repository
 func SetupNewRepositoryOptions(ctx context.Context, flags map[string]string) repo.NewRepositoryOptions {
 	return repo.NewRepositoryOptions{
 		BlockFormat: format.ContentFormat{
-			Hash:       getKopiaAlgorithm(udmrepo.StoreOptionGenHashAlgo, "KOPIA_HASHING_ALGORITHM", flags, hashing.SupportedAlgorithms(), hashing.DefaultAlgorithm),
-			Encryption: getKopiaAlgorithm(udmrepo.StoreOptionGenEncryptAlgo, "KOPIA_ENCRYPTION_ALGORITHM", flags, encryption.SupportedAlgorithms(false), encryption.DefaultAlgorithm),
+			Hash:       optionalHaveStringWithDefault(udmrepo.StoreOptionGenHashAlgo, flags, hashing.DefaultAlgorithm),
+			Encryption: optionalHaveStringWithDefault(udmrepo.StoreOptionGenEncryptAlgo, flags, encryption.DefaultAlgorithm),
 		},
 
 		ObjectFormat: format.ObjectFormat{
-			Splitter: getKopiaAlgorithm(udmrepo.StoreOptionGenSplitAlgo, "KOPIA_SPLITTER_ALGORITHM", flags, splitter.SupportedAlgorithms(), splitter.DefaultAlgorithm),
+			Splitter: optionalHaveStringWithDefault(udmrepo.StoreOptionGenSplitAlgo, flags, splitter.DefaultAlgorithm),
 		},
 
 		RetentionMode:   blob.RetentionMode(optionalHaveString(udmrepo.StoreOptionGenRetentionMode, flags)),
@@ -80,7 +66,8 @@ func SetupNewRepositoryOptions(ctx context.Context, flags map[string]string) rep
 
 // SetupConnectOptions setups the options when connecting to an existing Kopia repository
 func SetupConnectOptions(ctx context.Context, repoOptions udmrepo.RepoOptions) repo.ConnectOptions {
-	cacheLimit := optionalHaveIntWithDefault(ctx, udmrepo.StoreOptionCacheLimit, repoOptions.StorageOptions, defaultCacheLimitMB) << 20
+	cacheLimit := optionalHaveIntWithDefault(ctx, udmrepo.StoreOptionCacheLimit, repoOptions.StorageOptions, DefaultCacheLimitMB) << 20
+	cacheDir := optionalHaveString(udmrepo.StoreOptionCacheDir, repoOptions.StorageOptions)
 
 	// 80% for data cache and 20% for metadata cache and align to KB
 	dataCacheLimit := (cacheLimit / 5 * 4) >> 10
@@ -88,6 +75,7 @@ func SetupConnectOptions(ctx context.Context, repoOptions udmrepo.RepoOptions) r
 
 	return repo.ConnectOptions{
 		CachingOptions: content.CachingOptions{
+			CacheDirectory: cacheDir,
 			// softLimit 80%
 			ContentCacheSizeBytes:  (dataCacheLimit / 5 * 4) << 10,
 			MetadataCacheSizeBytes: (metadataCacheLimit / 5 * 4) << 10,
