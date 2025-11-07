@@ -213,8 +213,17 @@ func (urp *unifiedRepoProvider) PrepareRepo(ctx context.Context, param RepoParam
 	if ready, err := urp.repoService.IsReady(ctx, *repoOption, readOnly); err != nil {
 		return errors.Wrap(err, "error to check backup repo")
 	} else if ready {
-		log.Info("Repo has already been initialized")
-		return nil
+		bkRepo, err := urp.repoService.Open(ctx, *repoOption)
+		if err == nil {
+			if c := bkRepo.Close(ctx); c != nil {
+				log.WithError(c).Error("Failed to close repo")
+			}
+			log.Debug("Repo has already been initialized remotely and config file is valid")
+			return nil
+		}
+
+		log.WithError(err).Debug("Repo exists remotely but config file issue detected, connecting to it")
+		return urp.repoService.Connect(ctx, *repoOption)
 	}
 
 	if readOnly {
