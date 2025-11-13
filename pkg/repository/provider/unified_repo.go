@@ -46,6 +46,12 @@ type unifiedRepoProvider struct {
 	log              logrus.FieldLogger
 }
 
+type unifiedRepoConfigProvider struct {
+	repoService udmrepo.BackupRepoService
+	repoBackend string
+	log         logrus.FieldLogger
+}
+
 // this func is assigned to a package-level variable so it can be
 // replaced when unit-testing
 var getS3Credentials = repoconfig.GetS3Credentials
@@ -86,9 +92,18 @@ func NewUnifiedRepoProvider(
 	return &repo
 }
 
-func GetUnifiedRepoClientSideCacheLimit(repoOption map[string]string, repoBackend string, log logrus.FieldLogger) int64 {
-	repoService := createRepoService(repoBackend, log)
-	return repoService.ClientSideCacheLimit(repoOption)
+func NewUnifiedRepoConfigProvider(
+	repoBackend string,
+	log logrus.FieldLogger,
+) ConfigProvider {
+	repo := unifiedRepoConfigProvider{
+		repoBackend: repoBackend,
+		log:         log,
+	}
+
+	repo.repoService = createRepoService(repoBackend, log)
+
+	return &repo
 }
 
 func (urp *unifiedRepoProvider) InitRepo(ctx context.Context, param RepoParam) error {
@@ -174,7 +189,7 @@ func (urp *unifiedRepoProvider) PrepareRepo(ctx context.Context, param RepoParam
 		"repo UID":  param.BackupRepo.UID,
 	})
 
-	log.Debug("Start to prepare repo")
+	log.Info("Start to prepare repo")
 
 	repoOption, err := udmrepo.NewRepoOptions(
 		udmrepo.WithPassword(urp, param),
@@ -196,7 +211,7 @@ func (urp *unifiedRepoProvider) PrepareRepo(ctx context.Context, param RepoParam
 	if created, err := urp.repoService.IsCreated(ctx, *repoOption); err != nil {
 		return errors.Wrap(err, "error to check backup repo")
 	} else if created {
-		log.Debug("Repo has already been initialized remotely")
+		log.Info("Repo has already been initialized")
 		return nil
 	}
 
@@ -209,7 +224,7 @@ func (urp *unifiedRepoProvider) PrepareRepo(ctx context.Context, param RepoParam
 		return errors.Wrap(err, "error to create backup repo")
 	}
 
-	log.Debug("Prepare repo complete")
+	log.Info("Prepare repo complete")
 
 	return nil
 }
@@ -375,8 +390,12 @@ func (urp *unifiedRepoProvider) BatchForget(ctx context.Context, snapshotIDs []s
 	return errs
 }
 
-func (urp *unifiedRepoProvider) DefaultMaintenanceFrequency(ctx context.Context, param RepoParam) time.Duration {
+func (urp *unifiedRepoProvider) DefaultMaintenanceFrequency() time.Duration {
 	return urp.repoService.DefaultMaintenanceFrequency()
+}
+
+func (urp *unifiedRepoProvider) ClientSideCacheLimit(repoOption map[string]string) int64 {
+	return urp.repoService.ClientSideCacheLimit(repoOption)
 }
 
 func (urp *unifiedRepoProvider) GetPassword(param any) (string, error) {
@@ -427,6 +446,14 @@ func (urp *unifiedRepoProvider) GetStoreOptions(param any) (map[string]string, e
 	}
 
 	return storeOptions, nil
+}
+
+func (urcp *unifiedRepoConfigProvider) DefaultMaintenanceFrequency() time.Duration {
+	return urcp.repoService.DefaultMaintenanceFrequency()
+}
+
+func (urcp *unifiedRepoConfigProvider) ClientSideCacheLimit(repoOption map[string]string) int64 {
+	return urcp.repoService.ClientSideCacheLimit(repoOption)
 }
 
 func getRepoPassword(secretStore credentials.SecretStore) (string, error) {
