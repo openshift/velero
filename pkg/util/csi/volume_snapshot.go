@@ -604,73 +604,94 @@ func WaitUntilVSCHandleIsReady(
 		return vsc, nil
 	}
 
-	// We'll wait 10m for the VSC to be reconciled polling
-	// every 5s unless backup's csiSnapshotTimeout is set
+	// Poll every 1s for the first 10s to catch fast CSI drivers,
+	// then fall back to every 5s for the remainder of csiSnapshotTimeout.
+	fastInterval := 1 * time.Second
+	fastPhaseDuration := 10 * time.Second
 	interval := 5 * time.Second
+	currentInterval := fastInterval
 	vsc := new(snapshotv1api.VolumeSnapshotContent)
+
+	condFunc := func(ctx context.Context) (bool, error) {
+		vs := new(snapshotv1api.VolumeSnapshot)
+		if err := crClient.Get(
+			ctx,
+			crclient.ObjectKeyFromObject(volSnap),
+			vs,
+		); err != nil {
+			return false,
+				errors.Wrapf(
+					err,
+					"failed to get volumesnapshot %s/%s",
+					volSnap.Namespace, volSnap.Name,
+				)
+		}
+
+		if vs.Status == nil || vs.Status.BoundVolumeSnapshotContentName == nil {
+			log.Infof("Waiting for CSI driver to reconcile volumesnapshot %s/%s. Retrying in %ds",
+				volSnap.Namespace, volSnap.Name, currentInterval/time.Second)
+			return false, nil
+		}
+
+		if err := crClient.Get(
+			ctx,
+			crclient.ObjectKey{
+				Name: *vs.Status.BoundVolumeSnapshotContentName,
+			},
+			vsc,
+		); err != nil {
+			return false,
+				errors.Wrapf(
+					err,
+					"failed to get VolumeSnapshotContent %s for VolumeSnapshot %s/%s",
+					*vs.Status.BoundVolumeSnapshotContentName, vs.Namespace, vs.Name,
+				)
+		}
+
+		// we need to wait for the VolumeSnapshotContent
+		// to have a snapshot handle because during restore,
+		// we'll use that snapshot handle as the source for
+		// the VolumeSnapshotContent so it's statically
+		// bound to the existing snapshot.
+		if vsc.Status == nil ||
+			vsc.Status.SnapshotHandle == nil {
+			log.Infof(
+				"Waiting for VolumeSnapshotContents %s to have snapshot handle. Retrying in %ds",
+				vsc.Name, currentInterval/time.Second)
+			if vsc.Status != nil &&
+				vsc.Status.Error != nil {
+				log.Warnf("VolumeSnapshotContent %s has error: %v",
+					vsc.Name, *vsc.Status.Error.Message)
+			}
+			return false, nil
+		}
+
+		return true, nil
+	}
+
+	phase1Timeout := fastPhaseDuration
+	if phase1Timeout > csiSnapshotTimeout {
+		phase1Timeout = csiSnapshotTimeout
+	}
 
 	err := wait.PollUntilContextTimeout(
 		context.Background(),
-		interval,
-		csiSnapshotTimeout,
+		fastInterval,
+		phase1Timeout,
 		true,
-		func(ctx context.Context) (bool, error) {
-			vs := new(snapshotv1api.VolumeSnapshot)
-			if err := crClient.Get(
-				ctx,
-				crclient.ObjectKeyFromObject(volSnap),
-				vs,
-			); err != nil {
-				return false,
-					errors.Wrapf(
-						err,
-						"failed to get volumesnapshot %s/%s",
-						volSnap.Namespace, volSnap.Name,
-					)
-			}
-
-			if vs.Status == nil || vs.Status.BoundVolumeSnapshotContentName == nil {
-				log.Infof("Waiting for CSI driver to reconcile volumesnapshot %s/%s. Retrying in %ds",
-					volSnap.Namespace, volSnap.Name, interval/time.Second)
-				return false, nil
-			}
-
-			if err := crClient.Get(
-				ctx,
-				crclient.ObjectKey{
-					Name: *vs.Status.BoundVolumeSnapshotContentName,
-				},
-				vsc,
-			); err != nil {
-				return false,
-					errors.Wrapf(
-						err,
-						"failed to get VolumeSnapshotContent %s for VolumeSnapshot %s/%s",
-						*vs.Status.BoundVolumeSnapshotContentName, vs.Namespace, vs.Name,
-					)
-			}
-
-			// we need to wait for the VolumeSnapshotContent
-			// to have a snapshot handle because during restore,
-			// we'll use that snapshot handle as the source for
-			// the VolumeSnapshotContent so it's statically
-			// bound to the existing snapshot.
-			if vsc.Status == nil ||
-				vsc.Status.SnapshotHandle == nil {
-				log.Infof(
-					"Waiting for VolumeSnapshotContents %s to have snapshot handle. Retrying in %ds",
-					vsc.Name, interval/time.Second)
-				if vsc.Status != nil &&
-					vsc.Status.Error != nil {
-					log.Warnf("VolumeSnapshotContent %s has error: %v",
-						vsc.Name, *vsc.Status.Error.Message)
-				}
-				return false, nil
-			}
-
-			return true, nil
-		},
+		condFunc,
 	)
+
+	if err != nil && wait.Interrupted(err) && csiSnapshotTimeout > fastPhaseDuration {
+		currentInterval = interval
+		err = wait.PollUntilContextTimeout(
+			context.Background(),
+			interval,
+			csiSnapshotTimeout-fastPhaseDuration,
+			true,
+			condFunc,
+		)
+	}
 
 	if err != nil {
 		if wait.Interrupted(err) {
