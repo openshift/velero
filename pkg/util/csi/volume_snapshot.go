@@ -687,7 +687,8 @@ func WaitUntilVSCHandleIsReady(
 
 	// We'll wait 10m for the VSC to be reconciled polling
 	// every 5s unless backup's csiSnapshotTimeout is set
-	interval := 5 * time.Second
+	// Modifying to 1 second for custom build
+	interval := 1 * time.Second
 	vsc := new(snapshotv1api.VolumeSnapshotContent)
 
 	err := wait.PollUntilContextTimeout(
