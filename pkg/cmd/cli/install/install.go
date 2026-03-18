@@ -83,6 +83,7 @@ type Options struct {
 	DefaultVolumesToFsBackup        bool
 	UploaderType                    string
 	DefaultSnapshotMoveData         bool
+	CSISnapshotEarlyFrequentPolling bool
 	DisableInformerCache            bool
 	ScheduleSkipImmediately         bool
 	MaintenanceCfg                  repository.MaintenanceConfig
@@ -128,6 +129,7 @@ func (o *Options) BindFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&o.DefaultVolumesToFsBackup, "default-volumes-to-fs-backup", o.DefaultVolumesToFsBackup, "Bool flag to configure Velero server to use pod volume file system backup by default for all volumes on all backups. Optional.")
 	flags.StringVar(&o.UploaderType, "uploader-type", o.UploaderType, fmt.Sprintf("The type of uploader to transfer the data of pod volumes, the supported values are '%s', '%s'", uploader.ResticType, uploader.KopiaType))
 	flags.BoolVar(&o.DefaultSnapshotMoveData, "default-snapshot-move-data", o.DefaultSnapshotMoveData, "Bool flag to configure Velero server to move data by default for all snapshots supporting data movement. Optional.")
+	flags.BoolVar(&o.CSISnapshotEarlyFrequentPolling, "csi-snapshot-early-frequent-polling", o.CSISnapshotEarlyFrequentPolling, "Bool flag to configure Velero server to use early frequent polling by default for all CSI snapshots. Optional.")
 	flags.BoolVar(&o.DisableInformerCache, "disable-informer-cache", o.DisableInformerCache, "Disable informer cache for Get calls on restore. With this enabled, it will speed up restore in cases where there are backup resources which already exist in the cluster, but for very large clusters this will increase velero memory usage. Default is false (don't disable). Optional.")
 	flags.BoolVar(&o.ScheduleSkipImmediately, "schedule-skip-immediately", o.ScheduleSkipImmediately, "Skip the first scheduled backup immediately after creating a schedule. Default is false (don't skip).")
 	flags.IntVar(&o.MaintenanceCfg.KeepLatestMaitenanceJobs, "keep-latest-maintenance-jobs", o.MaintenanceCfg.KeepLatestMaitenanceJobs, "Number of latest maintenance jobs to keep each repository. Optional.")
@@ -156,14 +158,15 @@ func NewInstallOptions() *Options {
 		NodeAgentPodCPULimit:      install.DefaultNodeAgentPodCPULimit,
 		NodeAgentPodMemLimit:      install.DefaultNodeAgentPodMemLimit,
 		// Default to creating a VSL unless we're told otherwise
-		UseVolumeSnapshots:       true,
-		NoDefaultBackupLocation:  false,
-		CRDsOnly:                 false,
-		DefaultVolumesToFsBackup: false,
-		UploaderType:             uploader.KopiaType,
-		DefaultSnapshotMoveData:  false,
-		DisableInformerCache:     false,
-		ScheduleSkipImmediately:  false,
+		UseVolumeSnapshots:              true,
+		NoDefaultBackupLocation:         false,
+		CRDsOnly:                        false,
+		DefaultVolumesToFsBackup:        false,
+		UploaderType:                    uploader.KopiaType,
+		DefaultSnapshotMoveData:         false,
+		CSISnapshotEarlyFrequentPolling: false,
+		DisableInformerCache:            false,
+		ScheduleSkipImmediately:         false,
 	}
 }
 
@@ -229,6 +232,7 @@ func (o *Options) AsVeleroOptions() (*install.VeleroOptions, error) {
 		DefaultVolumesToFsBackup:        o.DefaultVolumesToFsBackup,
 		UploaderType:                    o.UploaderType,
 		DefaultSnapshotMoveData:         o.DefaultSnapshotMoveData,
+		CSISnapshotEarlyFrequentPolling: o.CSISnapshotEarlyFrequentPolling,
 		DisableInformerCache:            o.DisableInformerCache,
 		ScheduleSkipImmediately:         o.ScheduleSkipImmediately,
 		MaintenanceCfg:                  o.MaintenanceCfg,
