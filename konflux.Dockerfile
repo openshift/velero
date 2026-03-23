@@ -19,7 +19,7 @@ COPY . /workspace
 # velero
 WORKDIR /workspace/
 ENV GOEXPERIMENT strictfipsruntime
-RUN CGO_ENABLED=1 GOOS=linux go build -a -mod=readonly -ldflags '-X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=v1.16.1-OADP' -tags strictfipsruntime -o ./bin/velero ./cmd/velero
+RUN CGO_ENABLED=1 GOOS=linux go build -a -mod=readonly -ldflags '-X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=v1.18.0-OADP' -tags strictfipsruntime -o ./bin/velero ./cmd/velero
 RUN CGO_ENABLED=1 GOOS=linux go build -a -mod=readonly -tags strictfipsruntime -o ./bin/velero-restore-helper ./cmd/velero-restore-helper
 RUN CGO_ENABLED=1 GOOS=linux go build -a -mod=readonly -tags strictfipsruntime -o ./bin/velero-helper ./cmd/velero-helper
 
