@@ -1,9 +1,19 @@
+# FIPS 140-3 Compliance Configuration:
+# - GOFIPS140=v1.26.0: Embeds Go's native FIPS 140-3 cryptographic module (certified A6650)
+# - GODEBUG=fips140=on: Enables FIPS mode at runtime by default
+# - CGO_ENABLED=0: GOFIPS140 is pure Go, no CGO/OpenSSL dependencies required
+#   (see https://go.dev/blog/fips140 - "written in pure Go (and Go assembly)")
+# - Cross-compilation supported natively (no QEMU needed for multi-arch builds)
+# - Required for OpenShift deployments in regulated environments (gov, healthcare, finance)
+# - Containers sometimes consumed without OADP operator, so FIPS must be enabled by default
+
 FROM --platform=$BUILDPLATFORM quay.io/konveyor/builder:ubi9-latest AS builder
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
 ENV GOPATH=$APP_ROOT
+ENV GOFIPS140=v1.26.0
 
 COPY . /go/src/github.com/vmware-tanzu/velero
 
@@ -40,5 +50,6 @@ RUN chmod -R 777 /home/velero
 
 USER 65534:65534
 ENV HOME=/home/velero
+ENV GODEBUG=fips140=on
 
 ENTRYPOINT ["/velero"]
