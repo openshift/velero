@@ -1,24 +1,39 @@
-FROM --platform=$BUILDPLATFORM quay.io/konveyor/builder:ubi9-latest AS builder
+# FIPS 140-3 Compliance Configuration using Microsoft Go and Azure Linux:
+# - Builder: mcr.microsoft.com/oss/go/microsoft/golang:1.25-azurelinux3.0
+#   Microsoft's Go fork with integrated FIPS support via platform crypto libraries
+# - Runtime: mcr.microsoft.com/cbl-mariner/base/core:2.0
+#   CBL-Mariner (Azure Linux 2.0) minimal base with FIPS 140-3 compliance (SCOSSL/SymCrypt)
+# - GOFIPS140=latest: Enables FIPS mode in Microsoft's Go fork
+# - CGO_ENABLED=1: Required for platform-dependent crypto (OpenSSL on Linux)
+# - GODEBUG=fips140=on: Enables FIPS mode at runtime by default
+# - Containers sometimes consumed without OADP operator, so FIPS must be enabled by default
+# - Reference: https://github.com/Azure/ARO-HCP/blob/main/frontend/Dockerfile
+
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
+FROM mcr.microsoft.com/oss/go/microsoft/golang:1.25-azurelinux3.0 AS builder
+
+ENV APP_ROOT=/opt/app-root
 ENV GOPATH=$APP_ROOT
+ENV CGO_ENABLED=1 GOFIPS140=latest
 
 COPY . /go/src/github.com/vmware-tanzu/velero
 
 WORKDIR /go/src/github.com/vmware-tanzu/velero
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -ldflags '-extldflags "-static" -X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=oadp-1.5' -o /go/src/velero github.com/vmware-tanzu/velero/cmd/velero
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -ldflags '-extldflags "-static"' -o /go/src/velero-restore-helper github.com/vmware-tanzu/velero/cmd/velero-restore-helper
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -ldflags '-extldflags "-static"' -o /go/src/velero-helper github.com/vmware-tanzu/velero/cmd/velero-helper
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -ldflags '-X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=oadp-1.5' -o /go/src/velero github.com/vmware-tanzu/velero/cmd/velero
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -o /go/src/velero-restore-helper github.com/vmware-tanzu/velero/cmd/velero-restore-helper
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -o /go/src/velero-helper github.com/vmware-tanzu/velero/cmd/velero-helper
 
-FROM --platform=$BUILDPLATFORM quay.io/konveyor/builder:ubi9-latest AS restic-builder
-ARG BUILDPLATFORM
+FROM mcr.microsoft.com/oss/go/microsoft/golang:1.25-azurelinux3.0 AS restic-builder
 ARG TARGETOS
 ARG TARGETARCH
 
+ENV APP_ROOT=/opt/app-root
 ENV GOPATH=$APP_ROOT
+ENV CGO_ENABLED=1 GOFIPS140=latest
 
 RUN mkdir -p $APP_ROOT/src/github.com/restic \
     && cd $APP_ROOT/src/github.com/restic \
@@ -26,10 +41,9 @@ RUN mkdir -p $APP_ROOT/src/github.com/restic \
 
 WORKDIR $APP_ROOT/src/github.com/restic/restic
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -ldflags '-extldflags "-static"' -o $APP_ROOT/src/restic github.com/restic/restic/cmd/restic
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -mod=mod -o $APP_ROOT/src/restic github.com/restic/restic/cmd/restic
 
-FROM registry.access.redhat.com/ubi9-minimal
-RUN microdnf -y update && microdnf -y install nmap-ncat && microdnf -y reinstall tzdata && microdnf clean all
+FROM mcr.microsoft.com/azurelinux/base/core:3.0
 COPY --from=builder /go/src/velero velero
 COPY --from=builder /go/src/velero-restore-helper velero-restore-helper
 COPY --from=builder /go/src/velero-helper velero-helper
@@ -40,5 +54,6 @@ RUN chmod -R 777 /home/velero
 
 USER 65534:65534
 ENV HOME=/home/velero
+ENV GODEBUG=fips140=on
 
 ENTRYPOINT ["/velero"]
