@@ -26,7 +26,7 @@ require (
 	github.com/hashicorp/go-plugin v1.6.0
 	github.com/joho/godotenv v1.3.0
 	github.com/kopia/kopia v0.16.0
-	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.2.0
+	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
 	github.com/petar/GoLLRB v0.0.0-20210522233825-ae3b015fd3e9
@@ -198,4 +198,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260402180148-5c8593af160b
+replace github.com/kopia/kopia => github.com/project-velero/kopia v0.0.0-20251230033609-d946b1e75197
