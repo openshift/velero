@@ -57,8 +57,8 @@ func (s *SkippedVolumeInfo) Verify() error {
 	Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("Fail to get VolumeInfo metadata in the Backup Repository."))
 
 	fmt.Printf("The VolumeInfo metadata content: %+v\n", *volumeInfo[0])
-	Expect(len(volumeInfo) > 0).To(BeIdenticalTo(true))
-	Expect(volumeInfo[0].Skipped == true).To(BeIdenticalTo(true))
+	Expect(len(volumeInfo)).To(BeNumerically(">", 0))
+	Expect(volumeInfo[0].Skipped).To(Equal(true))
 
 	// Clean SC and VSC
 	return s.cleanResource()

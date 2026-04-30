@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:gosec // Internal usage. No need to check.
 package config
 
 import (

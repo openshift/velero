@@ -68,7 +68,7 @@ func TestSetOfMap(t *testing.T) {
 				require.NotNil(t, err)
 				return
 			}
-			assert.EqualValues(t, c.expected, m.Data())
+			assert.Equal(t, c.expected, m.Data())
 		})
 	}
 }
