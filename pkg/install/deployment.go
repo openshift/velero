@@ -449,7 +449,7 @@ func Deployment(namespace string, opts ...podTemplateOption) *appsv1.Deployment 
 	}
 
 	if c.csiSnapshotEarlyFrequentPolling {
-		deployment.Spec.Template.Spec.Containers[0].Env = append(deployment.Spec.Template.Spec.Containers[0].Env, []corev1api.EnvVar{
+		deployment.Spec.Template.Spec.Containers[0].Env = append(deployment.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
 			{
 				Name:  "CSI_SNAPSHOT_EARLY_FREQUENT_POLLING",
 				Value: "true",
