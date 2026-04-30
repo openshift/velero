@@ -454,7 +454,7 @@ func TestGetBackupVolumeSnapshots(t *testing.T) {
 
 	res, err = harness.GetBackupVolumeSnapshots("test-backup")
 	assert.NoError(t, err)
-	assert.EqualValues(t, snapshots, res)
+	assert.Equal(t, snapshots, res)
 }
 
 func TestGetBackupItemOperations(t *testing.T) {
@@ -504,7 +504,7 @@ func TestGetBackupItemOperations(t *testing.T) {
 
 	res, err = harness.GetBackupItemOperations("test-backup")
 	assert.NoError(t, err)
-	assert.EqualValues(t, operations, res)
+	assert.Equal(t, operations, res)
 }
 
 func TestGetRestoreItemOperations(t *testing.T) {
@@ -553,7 +553,7 @@ func TestGetRestoreItemOperations(t *testing.T) {
 
 	res, err = harness.GetRestoreItemOperations("test-restore")
 	assert.NoError(t, err)
-	assert.EqualValues(t, operations, res)
+	assert.Equal(t, operations, res)
 }
 
 func TestGetBackupContents(t *testing.T) {
@@ -824,7 +824,7 @@ func TestGetCSIVolumeSnapshotClasses(t *testing.T) {
 
 	res, err = harness.GetCSIVolumeSnapshotClasses("test-backup")
 	assert.NoError(t, err)
-	assert.EqualValues(t, classes, res)
+	assert.Equal(t, classes, res)
 }
 
 func TestGetCSIVolumeSnapshots(t *testing.T) {
@@ -860,7 +860,7 @@ func TestGetCSIVolumeSnapshots(t *testing.T) {
 
 	res, err = harness.GetCSIVolumeSnapshots("test-backup")
 	assert.NoError(t, err)
-	assert.EqualValues(t, snapshots, res)
+	assert.Equal(t, snapshots, res)
 }
 
 func TestGetCSIVolumeSnapshotContents(t *testing.T) {
@@ -894,7 +894,7 @@ func TestGetCSIVolumeSnapshotContents(t *testing.T) {
 
 	res, err = harness.GetCSIVolumeSnapshotContents("test-backup")
 	assert.NoError(t, err)
-	assert.EqualValues(t, contents, res)
+	assert.Equal(t, contents, res)
 }
 
 type objectStoreGetter map[string]velero.ObjectStore
@@ -1171,8 +1171,8 @@ func TestGetRestoreResults(t *testing.T) {
 	res, err := harness.GetRestoreResults("test-restore")
 
 	assert.NoError(t, err)
-	assert.EqualValues(t, contents["warnings"], res["warnings"])
-	assert.EqualValues(t, contents["errors"], res["errors"])
+	assert.Equal(t, contents["warnings"], res["warnings"])
+	assert.Equal(t, contents["errors"], res["errors"])
 }
 
 func TestGetRestoredResourceList(t *testing.T) {
@@ -1200,7 +1200,7 @@ func TestGetRestoredResourceList(t *testing.T) {
 	res, err := harness.GetRestoredResourceList("test-restore")
 
 	assert.NoError(t, err)
-	assert.EqualValues(t, list["pod"], res["pod"])
+	assert.Equal(t, list["pod"], res["pod"])
 }
 
 func TestPutBackupVolumeInfos(t *testing.T) {
