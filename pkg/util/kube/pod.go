@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -172,13 +173,15 @@ func GetPodContainerTerminateMessage(pod *corev1api.Pod, container string) strin
 // GetPodTerminateMessage returns the terminate message for all containers of a pod
 func GetPodTerminateMessage(pod *corev1api.Pod) string {
 	message := ""
+	var messageSb175 strings.Builder
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.State.Terminated != nil {
 			if containerStatus.State.Terminated.Message != "" {
-				message += containerStatus.State.Terminated.Message + "/"
+				messageSb175.WriteString(containerStatus.State.Terminated.Message + "/")
 			}
 		}
 	}
+	message += messageSb175.String()
 
 	return message
 }
@@ -267,9 +270,11 @@ func ToSystemAffinity(loadAffinities []*LoadAffinity) *corev1api.Affinity {
 func DiagnosePod(pod *corev1api.Pod) string {
 	diag := fmt.Sprintf("Pod %s/%s, phase %s, node name %s\n", pod.Namespace, pod.Name, pod.Status.Phase, pod.Spec.NodeName)
 
+	var diagSb270 strings.Builder
 	for _, condition := range pod.Status.Conditions {
-		diag += fmt.Sprintf("Pod condition %s, status %s, reason %s, message %s\n", condition.Type, condition.Status, condition.Reason, condition.Message)
+		fmt.Fprintf(&diagSb270, "Pod condition %s, status %s, reason %s, message %s\n", condition.Type, condition.Status, condition.Reason, condition.Message)
 	}
+	diag += diagSb270.String()
 
 	return diag
 }

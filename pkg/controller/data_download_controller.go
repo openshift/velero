@@ -157,7 +157,8 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	if dd.Status.Phase == "" || dd.Status.Phase == velerov2alpha1api.DataDownloadPhaseNew {
+	switch dd.Status.Phase {
+	case "", velerov2alpha1api.DataDownloadPhaseNew:
 		log.Info("Data download starting")
 
 		if _, err := r.getTargetPVC(ctx, dd); err != nil {
@@ -225,7 +226,7 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		return ctrl.Result{}, nil
-	} else if dd.Status.Phase == velerov2alpha1api.DataDownloadPhaseAccepted {
+	case velerov2alpha1api.DataDownloadPhaseAccepted:
 		if dd.Spec.Cancel {
 			log.Debugf("Data download is been canceled %s in Phase %s", dd.GetName(), dd.Status.Phase)
 			r.tryCancelAcceptedDataDownload(ctx, dd, "")
@@ -239,7 +240,7 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		return ctrl.Result{}, nil
-	} else if dd.Status.Phase == velerov2alpha1api.DataDownloadPhasePrepared {
+	case velerov2alpha1api.DataDownloadPhasePrepared:
 		log.Info("Data download is prepared")
 
 		if dd.Spec.Cancel {
@@ -312,7 +313,7 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		return ctrl.Result{}, nil
-	} else if dd.Status.Phase == velerov2alpha1api.DataDownloadPhaseInProgress {
+	case velerov2alpha1api.DataDownloadPhaseInProgress:
 		log.Info("Data download is in progress")
 		if dd.Spec.Cancel {
 			log.Info("Data download is being canceled")
@@ -338,7 +339,7 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 
 		return ctrl.Result{}, nil
-	} else {
+	default:
 		// put the finalizer remove action here for all cr will goes to the final status, we could check finalizer and do remove action in final status
 		// instead of intermediate state
 		// remove finalizer no matter whether the cr is being deleted or not for it is no longer needed when internal resources are all cleaned up
