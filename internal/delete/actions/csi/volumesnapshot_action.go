@@ -89,7 +89,7 @@ func (p *volumeSnapshotDeleteItemAction) Execute(
 		if err != nil && !apierrors.IsNotFound(err) {
 			return errors.Wrapf(
 				err,
-				fmt.Sprintf("failed to patch DeletionPolicy of volume snapshot %s/%s",
+				"%s", fmt.Sprintf("failed to patch DeletionPolicy of volume snapshot %s/%s",
 					vs.Namespace, vs.Name),
 			)
 		}

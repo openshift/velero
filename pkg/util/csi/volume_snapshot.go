@@ -70,7 +70,7 @@ func WaitVolumeSnapshotReady(
 			if err != nil {
 				return false, errors.Wrapf(
 					err,
-					fmt.Sprintf("error to get VolumeSnapshot %s/%s",
+					"%s", fmt.Sprintf("error to get VolumeSnapshot %s/%s",
 						volumeSnapshotNS, volumeSnapshot),
 				)
 			}
@@ -174,7 +174,7 @@ func EnsureDeleteVS(ctx context.Context, snapshotClient snapshotter.SnapshotV1In
 				return true, nil
 			}
 
-			return false, errors.Wrapf(err, fmt.Sprintf("error to get VolumeSnapshot %s", vsName))
+			return false, errors.Wrapf(err, "%s", fmt.Sprintf("error to get VolumeSnapshot %s", vsName))
 		}
 
 		return false, nil
@@ -226,7 +226,7 @@ func EnsureDeleteVSC(ctx context.Context, snapshotClient snapshotter.SnapshotV1I
 				return true, nil
 			}
 
-			return false, errors.Wrapf(err, fmt.Sprintf("error to get VolumeSnapshotContent %s", vscName))
+			return false, errors.Wrapf(err, "%s", fmt.Sprintf("error to get VolumeSnapshotContent %s", vscName))
 		}
 
 		return false, nil
@@ -342,16 +342,16 @@ func GetVolumeSnapshotClassFromPVCAnnotationsForDriver(
 	snapshotClasses *snapshotv1api.VolumeSnapshotClassList,
 ) (*snapshotv1api.VolumeSnapshotClass, error) {
 	annotationKey := velerov1api.VolumeSnapshotClassDriverPVCAnnotation
-	snapshotClassName, ok := pvc.ObjectMeta.Annotations[annotationKey]
+	snapshotClassName, ok := pvc.Annotations[annotationKey]
 	if !ok {
 		return nil, nil
 	}
 	for _, sc := range snapshotClasses.Items {
-		if strings.EqualFold(snapshotClassName, sc.ObjectMeta.Name) {
+		if strings.EqualFold(snapshotClassName, sc.Name) {
 			if !strings.EqualFold(sc.Driver, provisioner) {
 				return nil, errors.Errorf(
 					"Incorrect VolumeSnapshotClass %s is not for driver %s",
-					sc.ObjectMeta.Name, provisioner,
+					sc.Name, provisioner,
 				)
 			}
 			return &sc, nil
@@ -376,16 +376,16 @@ func GetVolumeSnapshotClassFromBackupAnnotationsForDriver(
 		velerov1api.VolumeSnapshotClassDriverBackupAnnotationPrefix,
 		strings.ToLower(provisioner),
 	)
-	snapshotClassName, ok := backup.ObjectMeta.Annotations[annotationKey]
+	snapshotClassName, ok := backup.Annotations[annotationKey]
 	if !ok {
 		return nil, nil
 	}
 	for _, sc := range snapshotClasses.Items {
-		if strings.EqualFold(snapshotClassName, sc.ObjectMeta.Name) {
+		if strings.EqualFold(snapshotClassName, sc.Name) {
 			if !strings.EqualFold(sc.Driver, provisioner) {
 				return nil, errors.Errorf(
 					"Incorrect VolumeSnapshotClass %s is not for driver %s for backup %s",
-					sc.ObjectMeta.Name, provisioner, backup.Name,
+					sc.Name, provisioner, backup.Name,
 				)
 			}
 			return &sc, nil
@@ -620,7 +620,7 @@ func recreateVolumeSnapshotContent(
 				}
 				return false, errors.Wrapf(
 					err,
-					fmt.Sprintf("failed to get VolumeSnapshotContent %s", vsc.Name),
+					"%s", fmt.Sprintf("failed to get VolumeSnapshotContent %s", vsc.Name),
 				)
 			}
 			return false, nil
@@ -703,7 +703,7 @@ func WaitUntilVSCHandleIsReady(
 				vs,
 			); err != nil {
 				return false,
-					errors.Wrapf(err, fmt.Sprintf(
+					errors.Wrapf(err, "%s", fmt.Sprintf(
 						"failed to get volumesnapshot %s/%s",
 						volSnap.Namespace, volSnap.Name),
 					)
@@ -725,7 +725,7 @@ func WaitUntilVSCHandleIsReady(
 				return false,
 					errors.Wrapf(
 						err,
-						fmt.Sprintf("failed to get VolumeSnapshotContent %s for VolumeSnapshot %s/%s",
+						"%s", fmt.Sprintf("failed to get VolumeSnapshotContent %s for VolumeSnapshot %s/%s",
 							*vs.Status.BoundVolumeSnapshotContentName, vs.Namespace, vs.Name),
 					)
 			}

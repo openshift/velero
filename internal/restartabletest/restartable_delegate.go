@@ -102,7 +102,7 @@ func RunRestartableDelegateTests(
 
 			// This Function asserts that the actual outputs match the expected outputs
 			checkOutputs := func(expected []interface{}, actual []reflect.Value) {
-				require.Equal(t, len(expected), len(actual))
+				require.Len(t, actual, len(expected))
 
 				for i := range actual {
 					// Get the underlying value from the reflect.Value

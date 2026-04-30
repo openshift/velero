@@ -82,10 +82,8 @@ func decodeStruct(r io.Reader, s interface{}) error {
 // validate check action format
 func (a *Action) validate() error {
 	// validate Type
-	valid := false
-	if a.Type == Skip || a.Type == Snapshot || a.Type == FSBackup {
-		valid = true
-	}
+	valid := a.Type == Skip || a.Type == Snapshot || a.Type == FSBackup
+
 	if !valid {
 		return fmt.Errorf("invalid action type %s", a.Type)
 	}

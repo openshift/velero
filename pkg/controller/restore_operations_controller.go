@@ -230,7 +230,7 @@ func (r *restoreOperationsReconciler) updateRestoreAndOperationsJSON(
 			}
 		}
 		// update restore
-		err := r.Client.Patch(ctx, restore, client.MergeFrom(original))
+		err := r.Patch(ctx, restore, client.MergeFrom(original))
 		if err != nil {
 			removeIfComplete = false
 			return errors.Wrapf(err, "error updating Restore %s", restore.Name)
@@ -238,7 +238,7 @@ func (r *restoreOperationsReconciler) updateRestoreAndOperationsJSON(
 	} else if completionChanges {
 		// If restore is still incomplete and no new errors are found but there are some new operations
 		// completed, patch restore to reflect new completion numbers, but don't upload detailed json file
-		err := r.Client.Patch(ctx, restore, client.MergeFrom(original))
+		err := r.Patch(ctx, restore, client.MergeFrom(original))
 		if err != nil {
 			return errors.Wrapf(err, "error updating Restore %s", restore.Name)
 		}

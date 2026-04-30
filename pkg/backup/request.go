@@ -98,5 +98,5 @@ func (r *Request) FillVolumesInformation() {
 	r.VolumesInformation.NativeSnapshots = r.VolumeSnapshots
 	r.VolumesInformation.PodVolumeBackups = r.PodVolumeBackups
 	r.VolumesInformation.BackupOperations = *r.GetItemOperationsList()
-	r.VolumesInformation.BackupName = r.Backup.Name
+	r.VolumesInformation.BackupName = r.Name
 }

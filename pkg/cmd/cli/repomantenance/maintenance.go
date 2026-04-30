@@ -77,7 +77,7 @@ func (o *Options) Run(f velerocli.Factory) {
 		}
 		defer terminationLogFile.Close()
 
-		if _, errWrite := terminationLogFile.WriteString(fmt.Sprintf("An error occurred: %v", err)); errWrite != nil {
+		if _, errWrite := fmt.Fprintf(terminationLogFile, "An error occurred: %v", err); errWrite != nil {
 			logger.WithError(errWrite).Error("Failed to write error to termination log file")
 		}
 	}

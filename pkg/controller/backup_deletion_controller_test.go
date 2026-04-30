@@ -1014,7 +1014,7 @@ func TestDeleteMovedSnapshots(t *testing.T) {
 			if test.expected == nil {
 				assert.Nil(t, errs)
 			} else {
-				assert.Equal(t, len(test.expected), len(errs))
+				assert.Len(t, errs, len(test.expected))
 				for i := range test.expected {
 					assert.EqualError(t, errs[i], test.expected[i])
 				}

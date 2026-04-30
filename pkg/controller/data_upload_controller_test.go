@@ -1050,7 +1050,7 @@ func TestFindDataUploads(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, len(test.expectedUploads), len(uploads))
+				assert.Len(t, uploads, len(test.expectedUploads))
 			}
 		})
 	}

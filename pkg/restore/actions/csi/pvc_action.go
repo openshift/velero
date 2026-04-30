@@ -298,12 +298,13 @@ func (p *pvcRestoreItemAction) Progress(
 		progress.Updated = dataDownload.Status.CompletionTimestamp.Time
 	}
 
-	if dataDownload.Status.Phase == velerov2alpha1.DataDownloadPhaseCompleted {
+	switch dataDownload.Status.Phase {
+	case velerov2alpha1.DataDownloadPhaseCompleted:
 		progress.Completed = true
-	} else if dataDownload.Status.Phase == velerov2alpha1.DataDownloadPhaseCanceled {
+	case velerov2alpha1.DataDownloadPhaseCanceled:
 		progress.Completed = true
 		progress.Err = "DataDownload is canceled"
-	} else if dataDownload.Status.Phase == velerov2alpha1.DataDownloadPhaseFailed {
+	case velerov2alpha1.DataDownloadPhaseFailed:
 		progress.Completed = true
 		progress.Err = dataDownload.Status.Message
 	}
@@ -502,7 +503,7 @@ func restoreFromVolumeSnapshot(
 		vs,
 	); err != nil {
 		return errors.Wrapf(err,
-			fmt.Sprintf("Failed to get Volumesnapshot %s/%s to restore PVC %s/%s",
+			"%s", fmt.Sprintf("Failed to get Volumesnapshot %s/%s to restore PVC %s/%s",
 				newNamespace, volumeSnapshotName, newNamespace, pvc.Name),
 		)
 	}
@@ -511,7 +512,7 @@ func restoreFromVolumeSnapshot(
 		restoreSize, err := resource.ParseQuantity(
 			vs.Annotations[velerov1api.VolumeSnapshotRestoreSize])
 		if err != nil {
-			return errors.Wrapf(err, fmt.Sprintf(
+			return errors.Wrapf(err, "%s", fmt.Sprintf(
 				"Failed to parse %s from annotation on Volumesnapshot %s/%s into restore size",
 				vs.Annotations[velerov1api.VolumeSnapshotRestoreSize], vs.Namespace, vs.Name))
 		}

@@ -145,7 +145,7 @@ func (v volumeHelperImpl) ShouldPerformFSBackup(volume corev1api.Volume, pod cor
 	if v.volumePolicy != nil {
 		var resource interface{}
 		resource = &volume
-		if volume.VolumeSource.PersistentVolumeClaim != nil {
+		if volume.PersistentVolumeClaim != nil {
 			pvc, err := kubeutil.GetPVCForPodVolume(&volume, &pod, v.client)
 			if err != nil {
 				v.logger.WithError(err).Errorf("fail to get PVC for pod %s", pod.Namespace+"/"+pod.Name)
@@ -216,12 +216,10 @@ func (v volumeHelperImpl) shouldPerformFSBackupLegacy(
 }
 
 func (v *volumeHelperImpl) shouldIncludeVolumeInBackup(vol corev1api.Volume) bool {
-	includeVolumeInBackup := true
+	includeVolumeInBackup := vol.HostPath == nil
 	// cannot backup hostpath volumes as they are not mounted into /var/lib/kubelet/pods
 	// and therefore not accessible to the node agent daemon set.
-	if vol.HostPath != nil {
-		includeVolumeInBackup = false
-	}
+
 	// don't backup volumes mounting secrets. Secrets will be backed up separately.
 	if vol.Secret != nil {
 		includeVolumeInBackup = false

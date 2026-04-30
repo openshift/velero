@@ -257,7 +257,7 @@ func getLatestMaintenanceJob(cli client.Client, ns string) (*batchv1.Job, error)
 
 	// Get the latest maintenance job
 	sort.Slice(jobList.Items, func(i, j int) bool {
-		return jobList.Items[i].CreationTimestamp.Time.After(jobList.Items[j].CreationTimestamp.Time)
+		return jobList.Items[i].CreationTimestamp.After(jobList.Items[j].CreationTimestamp.Time)
 	})
 
 	return &jobList.Items[0], nil

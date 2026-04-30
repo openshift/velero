@@ -93,7 +93,7 @@ func (p *volumeSnapshotContentDeleteItemAction) Execute(
 				snapCont.Name, input.Backup.Name, *snapCont.Status.SnapshotHandle)
 			return nil
 		}
-		return errors.Wrapf(err, fmt.Sprintf(
+		return errors.Wrapf(err, "%s", fmt.Sprintf(
 			"failed to set DeletionPolicy on volumesnapshotcontent %s. Skipping deletion",
 			snapCont.Name))
 	}
