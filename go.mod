@@ -2,8 +2,6 @@ module github.com/vmware-tanzu/velero
 
 go 1.26.0
 
-toolchain go1.26.8
-
 require (
 	cloud.google.com/go/storage v1.57.2
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0
