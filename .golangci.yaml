@@ -196,7 +196,6 @@ linters:
       sprintf1: false
       errorf: false
       int-conversion: true
-      concat-loop: false
 
     revive:
       rules:
