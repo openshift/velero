@@ -26,6 +26,13 @@ func ShouldExpandWildcards(includes []string, excludes []string, fromBackup bool
 
 	wildcardFound := false
 	for _, include := range includes {
+		// "*" alone means "match all" - don't expand, so that
+		// getNamespacesToList can use a single cross-namespace API call
+		// instead of per-namespace calls.
+		if include == "*" {
+			return false
+		}
+
 		if containsWildcardPattern(include) {
 			wildcardFound = true
 		}
