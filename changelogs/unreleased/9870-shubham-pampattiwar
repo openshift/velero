@@ -1,0 +1,1 @@
+Fix backup performance regression when using includedNamespaces ["*"] by restoring cross-namespace API listing optimization
