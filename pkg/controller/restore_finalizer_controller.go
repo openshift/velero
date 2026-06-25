@@ -301,8 +301,10 @@ func (ctx *finalizerContext) execute() (results.Result, results.Result) {
 	pdpErrs := ctx.patchDynamicPVWithVolumeInfo()
 	errs.Merge(&pdpErrs)
 
-	vgscWarnings := ctx.cleanupStubVGSC()
-	warnings.Merge(&vgscWarnings)
+	if ctx.hasVolumeGroupSnapshotHandles() {
+		vgscWarnings := ctx.cleanupStubVGSC()
+		warnings.Merge(&vgscWarnings)
+	}
 
 	rehErrs := ctx.WaitRestoreExecHook()
 	errs.Merge(&rehErrs)
@@ -447,6 +449,15 @@ func (ctx *finalizerContext) patchDynamicPVWithVolumeInfo() (errs results.Result
 	ctx.logger.Info("patching newly dynamically provisioned PV ends")
 
 	return errs
+}
+
+func (ctx *finalizerContext) hasVolumeGroupSnapshotHandles() bool {
+	for _, vi := range ctx.volumeInfo {
+		if vi.CSISnapshotInfo != nil && vi.CSISnapshotInfo.VolumeGroupSnapshotHandle != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanupStubVGSC deletes stub VolumeGroupSnapshotContent objects that were

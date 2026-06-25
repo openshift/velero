@@ -1,3 +1,22 @@
+## v1.18.2
+
+### Download
+https://github.com/vmware-tanzu/velero/releases/tag/v1.18.2
+
+### Container Image
+`velero/velero:v1.18.2`
+
+### Documentation
+https://velero.io/docs/v1.18/
+
+### Upgrading
+https://velero.io/docs/v1.18/upgrade-to-1.18/
+
+### All Changes
+  * Skip VGS cleanup when backup did not use VolumeGroupSnapshots (#9900, @shubham-pampattiwar)
+  * Fix backup performance regression when using includedNamespaces ["*"] by restoring cross-namespace API listing optimization (#9870, @shubham-pampattiwar)
+  * Fix DataUploadDeleteAction creating snapshot-info ConfigMaps labeled with the wrong backup name when a DataUpload CR from another backup is incidentally captured in the backup tarball, which caused Kopia snapshots to be leaked in object storage on expiry of the real owning backup. (#9842, @christian-schlichtherle)
+
 ## v1.18.1
 
 ### Download
