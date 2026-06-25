@@ -94,6 +94,10 @@ $(GOBIN)/golangci-lint:
 	@echo "Extracting golangci-lint version from hack/build-image/Dockerfile"
 	GOLANGCI_VERSION=$$(grep -oP 'golangci-lint/(master|HEAD)/install.sh.*\Kv[0-9]+\.[0-9]+\.[0-9]+' hack/build-image/Dockerfile || \
 		grep -oP 'golangci-lint(/v[0-9]+)?/cmd/golangci-lint@\Kv[0-9]+\.[0-9]+\.[0-9]+' hack/build-image/Dockerfile); \
+	if [ -z "$$GOLANGCI_VERSION" ]; then \
+		echo "Failed to extract golangci-lint version from hack/build-image/Dockerfile"; \
+		exit 1; \
+	fi; \
 	echo "Installing golangci-lint version: $$GOLANGCI_VERSION"; \
 	MAJOR=$$(echo "$$GOLANGCI_VERSION" | grep -oP '^v\K[0-9]+'); \
 	if [ "$$MAJOR" -ge 2 ]; then \
