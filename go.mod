@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/velero
 
-go 1.25.8
+go 1.25.0
 
 require (
 	cloud.google.com/go/storage v1.40.0
@@ -175,4 +175,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/project-velero/kopia v0.0.0-20240417031915-e07d5b7de567
+replace github.com/kopia/kopia => github.com/project-velero/kopia v0.17.0-velero.1
