@@ -570,7 +570,8 @@ func (l *logHook) Fire(entry *logrus.Entry) error {
 }
 
 func TestWaitAllPodVolumesProcessed(t *testing.T) {
-	timeoutCtx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 	cases := []struct {
 		name              string
 		ctx               context.Context
