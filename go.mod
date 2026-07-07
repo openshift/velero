@@ -195,4 +195,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260401210630-0a1d66529b34
+replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260707214242-84facc5965e3
