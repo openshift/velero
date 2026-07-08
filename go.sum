@@ -533,8 +533,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
-github.com/migtools/kopia v0.0.0-20260401210630-0a1d66529b34 h1:deLC9TJ5MMtUZPaXn2W1K+CsXTcvS3JcE3QDE7GKv3I=
-github.com/migtools/kopia v0.0.0-20260401210630-0a1d66529b34/go.mod h1:gsCIN3opXmFP2taBZFnGx5UE0Qh6uKW4PNZpfYbtw3Q=
+github.com/migtools/kopia v0.0.0-20260707214242-84facc5965e3 h1:PXcvpARpV0GGi/1dpXeRkxS2gBx9AaRPlPMpvhiMREY=
+github.com/migtools/kopia v0.0.0-20260707214242-84facc5965e3/go.mod h1:0Z1Ltyt0FfmO9w+91cRGIVhM5GJFqVZGLep6qNz2P7c=
 github.com/minio/md5-simd v1.1.2 h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=
 github.com/minio/md5-simd v1.1.2/go.mod h1:MzdKDxYpY2BT9XQFocsiZf/NKVtR7nkE4RoEpN+20RM=
 github.com/minio/minio-go/v7 v7.0.84 h1:D1HVmAF8JF8Bpi6IU4V9vIEj+8pc+xU88EWMs2yed0E=
