@@ -19,6 +19,7 @@ package podvolume
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -202,7 +203,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 	}
 
 	log.Info("Async fs backup data path started")
-	r.eventRecorder.Event(pvb, false, datapath.EventReasonStarted, "Data path for %s started", pvb.Name)
+	r.eventRecorder.Event(pvb, false, datapath.EventReasonStarted, fmt.Sprintf("Data path for %s started", pvb.Name))
 
 	result := ""
 	select {
@@ -219,7 +220,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		log.WithError(err).Error("Async fs backup was not completed")
 	}
 
-	r.eventRecorder.EndingEvent(pvb, false, datapath.EventReasonStopped, "Data path for %s stopped", pvb.Name)
+	r.eventRecorder.EndingEvent(pvb, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s stopped", pvb.Name))
 
 	return result, err
 }
@@ -260,7 +261,7 @@ func (r *BackupMicroService) OnDataPathFailed(ctx context.Context, namespace str
 	log := r.logger.WithField("PVB", pvbName)
 	log.WithError(err).Error("Async fs backup data path failed")
 
-	r.eventRecorder.Event(r.pvb, false, datapath.EventReasonFailed, "Data path for PVB %s failed, error %v", r.pvbName, err)
+	r.eventRecorder.Event(r.pvb, false, datapath.EventReasonFailed, fmt.Sprintf("Data path for PVB %s failed, error %v", r.pvbName, err))
 	r.resultSignal <- dataPathResult{
 		err: errors.Wrapf(err, "Data path for PVB %s failed", r.pvbName),
 	}
@@ -270,7 +271,7 @@ func (r *BackupMicroService) OnDataPathCancelled(ctx context.Context, namespace 
 	log := r.logger.WithField("PVB", pvbName)
 	log.Warn("Async fs backup data path canceled")
 
-	r.eventRecorder.Event(r.pvb, false, datapath.EventReasonCancelled, "Data path for PVB %s canceled", pvbName)
+	r.eventRecorder.Event(r.pvb, false, datapath.EventReasonCancelled, fmt.Sprintf("Data path for PVB %s canceled", pvbName))
 	r.resultSignal <- dataPathResult{
 		err: errors.New(datapath.ErrCancelled),
 	}
@@ -302,12 +303,12 @@ func (r *BackupMicroService) closeDataPath(ctx context.Context, duName string) {
 func (r *BackupMicroService) cancelPodVolumeBackup(pvb *velerov1api.PodVolumeBackup) {
 	r.logger.WithField("PVB", pvb.Name).Info("PVB is being canceled")
 
-	r.eventRecorder.Event(pvb, false, datapath.EventReasonCancelling, "Canceling for PVB %s", pvb.Name)
+	r.eventRecorder.Event(pvb, false, datapath.EventReasonCancelling, fmt.Sprintf("Canceling for PVB %s", pvb.Name))
 
 	fsBackup := r.dataPathMgr.GetAsyncBR(pvb.Name)
 	if fsBackup == nil {
 		r.OnDataPathCancelled(r.ctx, pvb.GetNamespace(), pvb.GetName())
-		r.eventRecorder.EndingEvent(pvb, false, datapath.EventReasonStopped, "Data path for %s exited without start", pvb.Name)
+		r.eventRecorder.EndingEvent(pvb, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s exited without start", pvb.Name))
 	} else {
 		fsBackup.Cancel()
 	}

@@ -19,6 +19,7 @@ package datamover
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -205,7 +206,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 	}
 
 	log.Info("Async fs backup data path started")
-	r.eventRecorder.Event(du, false, datapath.EventReasonStarted, "Data path for %s started", du.Name)
+	r.eventRecorder.Event(du, false, datapath.EventReasonStarted, fmt.Sprintf("Data path for %s started", du.Name))
 
 	result := ""
 	select {
@@ -222,7 +223,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		log.WithError(err).Error("Async fs backup was not completed")
 	}
 
-	r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, "Data path for %s stopped", du.Name)
+	r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s stopped", du.Name))
 
 	return result, err
 }
@@ -263,7 +264,7 @@ func (r *BackupMicroService) OnDataUploadFailed(ctx context.Context, namespace s
 	log := r.logger.WithField("dataupload", duName)
 	log.WithError(err).Error("Async fs backup data path failed")
 
-	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonFailed, "Data path for data upload %s failed, error %v", r.dataUploadName, err)
+	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonFailed, fmt.Sprintf("Data path for data upload %s failed, error %v", r.dataUploadName, err))
 	r.resultSignal <- dataPathResult{
 		err: errors.Wrapf(err, "Data path for data upload %s failed", r.dataUploadName),
 	}
@@ -273,7 +274,7 @@ func (r *BackupMicroService) OnDataUploadCancelled(ctx context.Context, namespac
 	log := r.logger.WithField("dataupload", duName)
 	log.Warn("Async fs backup data path canceled")
 
-	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonCancelled, "Data path for data upload %s canceled", duName)
+	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonCancelled, fmt.Sprintf("Data path for data upload %s canceled", duName))
 	r.resultSignal <- dataPathResult{
 		err: errors.New(datapath.ErrCancelled),
 	}
@@ -305,12 +306,12 @@ func (r *BackupMicroService) closeDataPath(ctx context.Context, duName string) {
 func (r *BackupMicroService) cancelDataUpload(du *velerov2alpha1api.DataUpload) {
 	r.logger.WithField("DataUpload", du.Name).Info("Data upload is being canceled")
 
-	r.eventRecorder.Event(du, false, datapath.EventReasonCancelling, "Canceling for data upload %s", du.Name)
+	r.eventRecorder.Event(du, false, datapath.EventReasonCancelling, fmt.Sprintf("Canceling for data upload %s", du.Name))
 
 	fsBackup := r.dataPathMgr.GetAsyncBR(du.Name)
 	if fsBackup == nil {
 		r.OnDataUploadCancelled(r.ctx, du.GetNamespace(), du.GetName())
-		r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, "Data path for %s exited without start", du.Name)
+		r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s exited without start", du.Name))
 	} else {
 		fsBackup.Cancel()
 	}

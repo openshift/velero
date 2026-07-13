@@ -55,22 +55,22 @@ type backupMsTestHelper struct {
 	eventLock    sync.Mutex
 }
 
-func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string, a ...any) {
+func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = fmt.Sprintf(message, a...)
+	bt.eventMsg = message
 }
 
-func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string, a ...any) {
+func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = fmt.Sprintf(message, a...)
+	bt.eventMsg = message
 }
 func (bt *backupMsTestHelper) Shutdown() {}
 
