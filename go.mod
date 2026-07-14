@@ -41,7 +41,9 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/crash-diagnostics v0.4.3
+	github.com/vmware-tanzu/velero/pkg/apis v0.0.0-20260713215154-c825e3c136bc
 	go.uber.org/zap v1.28.0
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/mod v0.36.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.46.0
@@ -49,7 +51,6 @@ require (
 	google.golang.org/api v0.283.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
-	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.0
 	k8s.io/apiextensions-apiserver v0.36.0
 	k8s.io/apimachinery v0.36.0
@@ -220,4 +221,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260402180147-13b9de8884d2
+replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260714013826-f32d07a87d72
