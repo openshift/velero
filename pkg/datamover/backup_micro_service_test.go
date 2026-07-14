@@ -23,27 +23,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/vmware-tanzu/velero/pkg/builder"
-	"github.com/vmware-tanzu/velero/pkg/datapath"
-	"github.com/vmware-tanzu/velero/pkg/uploader"
-
-	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-
+	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerov2alpha1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v2alpha1"
-	velerotest "github.com/vmware-tanzu/velero/pkg/test"
-
-	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
-
+	"github.com/vmware-tanzu/velero/pkg/builder"
+	"github.com/vmware-tanzu/velero/pkg/datapath"
 	datapathmockes "github.com/vmware-tanzu/velero/pkg/datapath/mocks"
+	velerotest "github.com/vmware-tanzu/velero/pkg/test"
+	"github.com/vmware-tanzu/velero/pkg/uploader"
 )
 
 type backupMsTestHelper struct {
@@ -55,22 +50,22 @@ type backupMsTestHelper struct {
 	eventLock    sync.Mutex
 }
 
-func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string) {
+func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = message
+	bt.eventMsg = fmt.Sprintf(message, a...)
 }
 
-func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string) {
+func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = message
+	bt.eventMsg = fmt.Sprintf(message, a...)
 }
 func (bt *backupMsTestHelper) Shutdown() {}
 
@@ -294,7 +289,10 @@ func TestCancelDataUpload(t *testing.T) {
 func TestRunCancelableDataPath(t *testing.T) {
 	dataUploadName := "fake-data-upload"
 	du := builder.ForDataUpload(velerov1api.DefaultNamespace, dataUploadName).Phase(velerov2alpha1api.DataUploadPhaseNew).Result()
-	duInProgress := builder.ForDataUpload(velerov1api.DefaultNamespace, dataUploadName).Phase(velerov2alpha1api.DataUploadPhaseInProgress).Result()
+	duInProgress := builder.ForDataUpload(velerov1api.DefaultNamespace, dataUploadName).Phase(velerov2alpha1api.DataUploadPhaseInProgress).CSISnapshot(
+		&velerov2alpha1api.CSISnapshotSpec{
+			VolumeSnapshot: "fake-snapshot",
+		}).Result()
 	ctxTimeout, cancel := context.WithTimeout(t.Context(), time.Second)
 
 	tests := []struct {
@@ -403,7 +401,7 @@ func TestRunCancelableDataPath(t *testing.T) {
 				bs.dataPathMgr = test.dataPathMgr
 			}
 
-			datapath.FSBRCreator = func(string, string, kbclient.Client, string, datapath.Callbacks, logrus.FieldLogger) datapath.AsyncBR {
+			datapath.VGDPCreator = func(string, string, kbclient.Client, string, datapath.Callbacks, logrus.FieldLogger) datapath.AsyncBR {
 				fsBR := datapathmockes.NewAsyncBR(t)
 				if test.initErr != nil {
 					fsBR.On("Init", mock.Anything, mock.Anything).Return(test.initErr)

@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -117,7 +117,7 @@ func deleteHealthCheckNodePort(service *corev1api.Service) error {
 			continue
 		}
 		fields := new(map[string]any)
-		if err := json.Unmarshal(entry.FieldsV1.Raw, fields); err != nil {
+		if err := json.Unmarshal(entry.FieldsV1.GetRawBytes(), fields); err != nil {
 			return errors.WithStack(err)
 		}
 
@@ -222,7 +222,7 @@ func deleteNodePorts(service *corev1api.Service) error {
 			continue
 		}
 		fields := new(map[string]any)
-		if err := json.Unmarshal(entry.FieldsV1.Raw, fields); err != nil {
+		if err := json.Unmarshal(entry.FieldsV1.GetRawBytes(), fields); err != nil {
 			return errors.WithStack(err)
 		}
 

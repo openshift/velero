@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -161,7 +161,7 @@ func (r *RestoreMicroService) RunCancelableDataPath(ctx context.Context) (string
 		OnProgress:  r.OnPvrProgress,
 	}
 
-	fsRestore, err := r.dataPathMgr.CreateFileSystemBR(pvr.Name, podVolumeRequestor, ctx, r.client, pvr.Namespace, callbacks, log)
+	fsRestore, err := r.dataPathMgr.CreateGenericDataPath(pvr.Name, podVolumeRequestor, ctx, r.client, pvr.Namespace, callbacks, log)
 	if err != nil {
 		return "", errors.Wrap(err, "error to create data path")
 	}
@@ -169,7 +169,7 @@ func (r *RestoreMicroService) RunCancelableDataPath(ctx context.Context) (string
 	log.Debug("Async fs br created")
 
 	if err := fsRestore.Init(ctx,
-		&datapath.FSBRInitParam{
+		&datapath.InitParam{
 			BSLName:           pvr.Spec.BackupStorageLocation,
 			SourceNamespace:   pvr.Spec.SourceNamespace,
 			UploaderType:      pvr.Spec.UploaderType,
@@ -189,7 +189,7 @@ func (r *RestoreMicroService) RunCancelableDataPath(ctx context.Context) (string
 	}
 
 	log.Info("Async fs restore data path started")
-	r.eventRecorder.Event(pvr, false, datapath.EventReasonStarted, fmt.Sprintf("Data path for %s started", pvr.Name))
+	r.eventRecorder.Event(pvr, false, datapath.EventReasonStarted, "Data path for %s started", pvr.Name)
 
 	result := ""
 	select {
@@ -206,7 +206,7 @@ func (r *RestoreMicroService) RunCancelableDataPath(ctx context.Context) (string
 		log.WithError(err).Error("Async fs restore was not completed")
 	}
 
-	r.eventRecorder.EndingEvent(pvr, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s stopped", pvr.Name))
+	r.eventRecorder.EndingEvent(pvr, false, datapath.EventReasonStopped, "Data path for %s stopped", pvr.Name)
 
 	return result, err
 }
@@ -265,7 +265,7 @@ func (r *RestoreMicroService) OnPvrCancelled(ctx context.Context, namespace stri
 	log := r.logger.WithField("PVR", pvrName)
 	log.Warn("Async fs restore data path canceled")
 
-	r.eventRecorder.Event(r.pvr, false, datapath.EventReasonCancelled, fmt.Sprintf("Data path for PVR %s canceled", pvrName))
+	r.eventRecorder.Event(r.pvr, false, datapath.EventReasonCancelled, "Data path for PVR %s canceled", pvrName)
 	r.resultSignal <- dataPathResult{
 		err: errors.New(datapath.ErrCancelled),
 	}
@@ -297,12 +297,12 @@ func (r *RestoreMicroService) closeDataPath(ctx context.Context, pvrName string)
 func (r *RestoreMicroService) cancelPodVolumeRestore(pvr *velerov1api.PodVolumeRestore) {
 	r.logger.WithField("PVR", pvr.Name).Info("PVR is being canceled")
 
-	r.eventRecorder.Event(pvr, false, datapath.EventReasonCancelling, fmt.Sprintf("Canceling for PVR %s", pvr.Name))
+	r.eventRecorder.Event(pvr, false, datapath.EventReasonCancelling, "Canceling for PVR %s", pvr.Name)
 
 	fsBackup := r.dataPathMgr.GetAsyncBR(pvr.Name)
 	if fsBackup == nil {
 		r.OnPvrCancelled(r.ctx, pvr.GetNamespace(), pvr.GetName())
-		r.eventRecorder.EndingEvent(pvr, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s exited without start", pvr.Name))
+		r.eventRecorder.EndingEvent(pvr, false, datapath.EventReasonStopped, "Data path for %s exited without start", pvr.Name)
 	} else {
 		fsBackup.Cancel()
 	}

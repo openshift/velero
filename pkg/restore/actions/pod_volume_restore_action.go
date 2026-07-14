@@ -23,7 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	appsv1api "k8s.io/api/apps/v1"
 	corev1api "k8s.io/api/core/v1"
@@ -101,6 +101,7 @@ func (a *PodVolumeRestoreAction) Execute(input *velero.RestoreItemActionExecuteI
 
 	opts := &ctrlclient.ListOptions{
 		LabelSelector: label.NewSelectorForBackup(input.Restore.Spec.BackupName),
+		Namespace:     input.Restore.Namespace,
 	}
 	podVolumeBackupList := new(velerov1api.PodVolumeBackupList)
 	if err := a.crClient.List(context.TODO(), podVolumeBackupList, opts); err != nil {

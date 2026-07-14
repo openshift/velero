@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
-	"gopkg.in/yaml.v3"
+	"github.com/cockroachdb/errors"
+	"go.yaml.in/yaml/v3"
 )
 
 const currentSupportDataVersion = "v1"
@@ -40,13 +40,15 @@ type nFSVolumeSource struct {
 
 // volumeConditions defined the current format of conditions we parsed
 type volumeConditions struct {
-	Capacity     string            `yaml:"capacity,omitempty"`
-	StorageClass []string          `yaml:"storageClass,omitempty"`
-	NFS          *nFSVolumeSource  `yaml:"nfs,omitempty"`
-	CSI          *csiVolumeSource  `yaml:"csi,omitempty"`
-	VolumeTypes  []SupportedVolume `yaml:"volumeTypes,omitempty"`
-	PVCLabels    map[string]string `yaml:"pvcLabels,omitempty"`
-	PVCPhase     []string          `yaml:"pvcPhase,omitempty"`
+	Capacity       string            `yaml:"capacity,omitempty"`
+	StorageClass   []string          `yaml:"storageClass,omitempty"`
+	NFS            *nFSVolumeSource  `yaml:"nfs,omitempty"`
+	CSI            *csiVolumeSource  `yaml:"csi,omitempty"`
+	VolumeTypes    []SupportedVolume `yaml:"volumeTypes,omitempty"`
+	PVCLabels      map[string]string `yaml:"pvcLabels,omitempty"`
+	PVCPhase       []string          `yaml:"pvcPhase,omitempty"`
+	PVCVolumeMode  string            `yaml:"pvcVolumeMode,omitempty"`
+	PVCAccessModes []string          `yaml:"pvcAccessModes,omitempty"`
 }
 
 func (c *capacityCondition) validate() error {

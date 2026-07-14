@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -150,7 +150,7 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	if !datamover.IsBuiltInUploader(dd.Spec.DataMover) {
+	if !datamover.IsBuiltInDataMover(dd.Spec.DataMover) {
 		log.WithField("data mover", dd.Spec.DataMover).Info("it is not one built-in data mover which is not supported by Velero")
 		return ctrl.Result{}, nil
 	}
@@ -475,7 +475,12 @@ func (r *DataDownloadReconciler) OnDataDownloadCompleted(ctx context.Context, na
 	}
 
 	objRef := getDataDownloadOwnerObject(&dd)
-	err := r.restoreExposer.RebindVolume(ctx, objRef, dd.Spec.TargetVolume.PVC, dd.Spec.TargetVolume.Namespace, dd.Spec.OperationTimeout.Duration)
+	err := r.restoreExposer.RebindVolume(ctx, objRef, exposer.GenericRestoreRebindVolumeParam{
+		TargetPVCName:    dd.Spec.TargetVolume.PVC,
+		TargetNamespace:  dd.Spec.TargetVolume.Namespace,
+		OperationTimeout: dd.Spec.OperationTimeout.Duration,
+		TargetFSType:     dd.Spec.TargetVolume.FSType,
+	})
 	if err != nil {
 		log.WithError(err).Error("Failed to rebind PV to target PVC on completion")
 		return
@@ -944,6 +949,7 @@ func (r *DataDownloadReconciler) setupExposeParam(dd *velerov2alpha1api.DataDown
 		PriorityClassName:     r.dataMovePriorityClass,
 		RestoreSize:           dd.Spec.SnapshotSize,
 		CacheVolume:           cacheVolume,
+		DataMover:             dd.Spec.DataMover,
 	}, nil
 }
 

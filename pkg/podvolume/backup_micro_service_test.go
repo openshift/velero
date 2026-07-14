@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -54,22 +54,22 @@ type backupMsTestHelper struct {
 	eventLock    sync.Mutex
 }
 
-func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string) {
+func (bt *backupMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = message
+	bt.eventMsg = fmt.Sprintf(message, a...)
 }
 
-func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string) {
+func (bt *backupMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	bt.eventLock.Lock()
 	defer bt.eventLock.Unlock()
 
 	bt.withEvent = true
 	bt.eventReason = reason
-	bt.eventMsg = message
+	bt.eventMsg = fmt.Sprintf(message, a...)
 }
 func (bt *backupMsTestHelper) Shutdown() {}
 
@@ -402,7 +402,7 @@ func TestRunCancelableDataPath(t *testing.T) {
 				bs.dataPathMgr = test.dataPathMgr
 			}
 
-			datapath.FSBRCreator = func(string, string, kbclient.Client, string, datapath.Callbacks, logrus.FieldLogger) datapath.AsyncBR {
+			datapath.VGDPCreator = func(string, string, kbclient.Client, string, datapath.Callbacks, logrus.FieldLogger) datapath.AsyncBR {
 				fsBR := datapathmockes.NewAsyncBR(t)
 				if test.initErr != nil {
 					fsBR.On("Init", mock.Anything, mock.Anything).Return(test.initErr)

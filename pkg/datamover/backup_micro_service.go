@@ -19,10 +19,9 @@ package datamover
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -68,6 +67,10 @@ type BackupMicroService struct {
 	duInformer cache.Informer
 	duHandler  cachetool.ResourceEventHandlerRegistration
 	nodeName   string
+
+	changeID   string
+	volumeID   string
+	snapshotID string
 }
 
 type dataPathResult struct {
@@ -77,7 +80,7 @@ type dataPathResult struct {
 
 func NewBackupMicroService(ctx context.Context, client client.Client, kubeClient kubernetes.Interface, dataUploadName string, namespace string, nodeName string,
 	sourceTargetPath datapath.AccessPoint, dataPathMgr *datapath.Manager, repoEnsurer *repository.Ensurer, cred *credentials.CredentialGetter,
-	duInformer cache.Informer, log logrus.FieldLogger) *BackupMicroService {
+	duInformer cache.Informer, changeID string, volumeID string, snapshotID string, log logrus.FieldLogger) *BackupMicroService {
 	return &BackupMicroService{
 		ctx:              ctx,
 		client:           client,
@@ -92,6 +95,9 @@ func NewBackupMicroService(ctx context.Context, client client.Client, kubeClient
 		nodeName:         nodeName,
 		resultSignal:     make(chan dataPathResult),
 		duInformer:       duInformer,
+		changeID:         changeID,
+		volumeID:         volumeID,
+		snapshotID:       snapshotID,
 	}
 }
 
@@ -171,14 +177,14 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		OnProgress:  r.OnDataUploadProgress,
 	}
 
-	fsBackup, err := r.dataPathMgr.CreateFileSystemBR(du.Name, dataUploadDownloadRequestor, ctx, r.client, du.Namespace, callbacks, log)
+	dp, err := r.dataPathMgr.CreateGenericDataPath(du.Name, dataUploadDownloadRequestor, ctx, r.client, du.Namespace, callbacks, log)
 	if err != nil {
 		return "", errors.Wrap(err, "error to create data path")
 	}
 
 	log.Debug("Async fs br created")
 
-	if err := fsBackup.Init(ctx, &datapath.FSBRInitParam{
+	if err := dp.Init(ctx, &datapath.InitParam{
 		BSLName:           du.Spec.BackupStorageLocation,
 		SourceNamespace:   du.Spec.SourceNamespace,
 		UploaderType:      GetUploaderType(du.Spec.DataMover),
@@ -196,17 +202,20 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		velerov1api.AsyncOperationIDLabel: du.Labels[velerov1api.AsyncOperationIDLabel],
 	}
 
-	if err := fsBackup.StartBackup(r.sourceTargetPath, du.Spec.DataMoverConfig, &datapath.FSBRStartParam{
+	if err := dp.StartBackup(r.sourceTargetPath, du.Spec.DataMoverConfig, &datapath.BackupStartParam{
 		RealSource:     GetRealSource(du.Spec.SourceNamespace, du.Spec.SourcePVC),
 		ParentSnapshot: "",
 		ForceFull:      false,
 		Tags:           tags,
+		VolumeID:       r.volumeID,
+		ChangeID:       r.changeID,
+		SnapshotID:     r.snapshotID,
 	}); err != nil {
 		return "", errors.Wrap(err, "error starting data path backup")
 	}
 
 	log.Info("Async fs backup data path started")
-	r.eventRecorder.Event(du, false, datapath.EventReasonStarted, fmt.Sprintf("Data path for %s started", du.Name))
+	r.eventRecorder.Event(du, false, datapath.EventReasonStarted, "Data path for %s started", du.Name)
 
 	result := ""
 	select {
@@ -223,7 +232,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		log.WithError(err).Error("Async fs backup was not completed")
 	}
 
-	r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s stopped", du.Name))
+	r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, "Data path for %s stopped", du.Name)
 
 	return result, err
 }
@@ -264,7 +273,7 @@ func (r *BackupMicroService) OnDataUploadFailed(ctx context.Context, namespace s
 	log := r.logger.WithField("dataupload", duName)
 	log.WithError(err).Error("Async fs backup data path failed")
 
-	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonFailed, fmt.Sprintf("Data path for data upload %s failed, error %v", r.dataUploadName, err))
+	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonFailed, "Data path for data upload %s failed, error %v", r.dataUploadName, err)
 	r.resultSignal <- dataPathResult{
 		err: errors.Wrapf(err, "Data path for data upload %s failed", r.dataUploadName),
 	}
@@ -274,7 +283,7 @@ func (r *BackupMicroService) OnDataUploadCancelled(ctx context.Context, namespac
 	log := r.logger.WithField("dataupload", duName)
 	log.Warn("Async fs backup data path canceled")
 
-	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonCancelled, fmt.Sprintf("Data path for data upload %s canceled", duName))
+	r.eventRecorder.Event(r.dataUpload, false, datapath.EventReasonCancelled, "Data path for data upload %s canceled", duName)
 	r.resultSignal <- dataPathResult{
 		err: errors.New(datapath.ErrCancelled),
 	}
@@ -306,12 +315,12 @@ func (r *BackupMicroService) closeDataPath(ctx context.Context, duName string) {
 func (r *BackupMicroService) cancelDataUpload(du *velerov2alpha1api.DataUpload) {
 	r.logger.WithField("DataUpload", du.Name).Info("Data upload is being canceled")
 
-	r.eventRecorder.Event(du, false, datapath.EventReasonCancelling, fmt.Sprintf("Canceling for data upload %s", du.Name))
+	r.eventRecorder.Event(du, false, datapath.EventReasonCancelling, "Canceling for data upload %s", du.Name)
 
 	fsBackup := r.dataPathMgr.GetAsyncBR(du.Name)
 	if fsBackup == nil {
 		r.OnDataUploadCancelled(r.ctx, du.GetNamespace(), du.GetName())
-		r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, fmt.Sprintf("Data path for %s exited without start", du.Name))
+		r.eventRecorder.EndingEvent(du, false, datapath.EventReasonStopped, "Data path for %s exited without start", du.Name)
 	} else {
 		fsBackup.Cancel()
 	}

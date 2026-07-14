@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	volumegroupsnapshotv1beta1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta1"
+	volumegroupsnapshotv1beta2 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta2"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -634,6 +634,87 @@ func Test_restoreFinalizerReconciler_finishProcessing(t *testing.T) {
 	}
 }
 
+func TestNeedPatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		newPV    *corev1api.PersistentVolume
+		pvInfo   *volume.PVInfo
+		expected bool
+	}{
+		{
+			name: "reclaim policy differs",
+			newPV: builder.ForPersistentVolume("pv1").
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimRetain),
+				Labels:        map[string]string{},
+			},
+			expected: true,
+		},
+		{
+			name: "backup has label new PV does not",
+			newPV: builder.ForPersistentVolume("pv1").
+				ObjectMeta(builder.WithLabels("existing", "val")).
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimDelete),
+				Labels:        map[string]string{"existing": "val", "missing": "val"},
+			},
+			expected: true,
+		},
+		{
+			name: "same labels same values",
+			newPV: builder.ForPersistentVolume("pv1").
+				ObjectMeta(builder.WithLabels("key", "val")).
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimDelete),
+				Labels:        map[string]string{"key": "val"},
+			},
+			expected: false,
+		},
+		{
+			name: "same label key different values",
+			newPV: builder.ForPersistentVolume("pv1").
+				ObjectMeta(builder.WithLabels("topology.kubernetes.io/zone", "us-west-2a")).
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimDelete),
+				Labels:        map[string]string{"topology.kubernetes.io/zone": "us-east-1a"},
+			},
+			expected: false,
+		},
+		{
+			name: "new PV has labels backup does not",
+			newPV: builder.ForPersistentVolume("pv1").
+				ObjectMeta(builder.WithLabels("provisioner-label", "val")).
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimDelete),
+				Labels:        map[string]string{},
+			},
+			expected: false,
+		},
+		{
+			name: "both labels nil",
+			newPV: builder.ForPersistentVolume("pv1").
+				ReclaimPolicy(corev1api.PersistentVolumeReclaimDelete).Result(),
+			pvInfo: &volume.PVInfo{
+				ReclaimPolicy: string(corev1api.PersistentVolumeReclaimDelete),
+				Labels:        nil,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := needPatch(tc.newPV, tc.pvInfo)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 func TestRestoreOperationList(t *testing.T) {
 	var empty []*itemoperation.RestoreOperation
 	tests := []struct {
@@ -743,6 +824,83 @@ func TestRestoreOperationList(t *testing.T) {
 	}
 }
 
+func TestHasVolumeGroupSnapshotHandles(t *testing.T) {
+	tests := []struct {
+		name       string
+		volumeInfo []*volume.BackupVolumeInfo
+		expected   bool
+	}{
+		{
+			name:       "nil volumeInfo",
+			volumeInfo: nil,
+			expected:   false,
+		},
+		{
+			name:       "empty volumeInfo",
+			volumeInfo: []*volume.BackupVolumeInfo{},
+			expected:   false,
+		},
+		{
+			name: "no CSISnapshotInfo",
+			volumeInfo: []*volume.BackupVolumeInfo{
+				{PVCName: "pvc-1", BackupMethod: volume.NativeSnapshot},
+			},
+			expected: false,
+		},
+		{
+			name: "CSISnapshotInfo with empty VolumeGroupSnapshotHandle",
+			volumeInfo: []*volume.BackupVolumeInfo{
+				{
+					PVCName:      "pvc-1",
+					BackupMethod: volume.CSISnapshot,
+					CSISnapshotInfo: &volume.CSISnapshotInfo{
+						SnapshotHandle: "snap-1",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "one volume with VolumeGroupSnapshotHandle",
+			volumeInfo: []*volume.BackupVolumeInfo{
+				{
+					PVCName:      "pvc-1",
+					BackupMethod: volume.CSISnapshot,
+					CSISnapshotInfo: &volume.CSISnapshotInfo{
+						SnapshotHandle:            "snap-1",
+						VolumeGroupSnapshotHandle: "vgs-handle-1",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed volumes only one with VolumeGroupSnapshotHandle",
+			volumeInfo: []*volume.BackupVolumeInfo{
+				{PVCName: "pvc-1", BackupMethod: volume.NativeSnapshot},
+				{
+					PVCName:      "pvc-2",
+					BackupMethod: volume.CSISnapshot,
+					CSISnapshotInfo: &volume.CSISnapshotInfo{
+						SnapshotHandle:            "snap-2",
+						VolumeGroupSnapshotHandle: "vgs-handle-2",
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &finalizerContext{
+				volumeInfo: tc.volumeInfo,
+			}
+			assert.Equal(t, tc.expected, ctx.hasVolumeGroupSnapshotHandles())
+		})
+	}
+}
+
 func TestCleanupStubVGSC(t *testing.T) {
 	snapshotHandle1 := "snap-handle-1"
 	snapshotHandle2 := "snap-handle-2"
@@ -750,7 +908,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 	tests := []struct {
 		name              string
 		restore           *velerov1api.Restore
-		existingVGSCs     []*volumegroupsnapshotv1beta1.VolumeGroupSnapshotContent
+		existingVGSCs     []*volumegroupsnapshotv1beta2.VolumeGroupSnapshotContent
 		existingVSCs      []*snapshotv1api.VolumeSnapshotContent
 		expectedRemaining int
 		expectedWarnings  bool
@@ -765,7 +923,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 		{
 			name:    "single stub VGSC deleted after VSCs are ready",
 			restore: builder.ForRestore(velerov1api.DefaultNamespace, "restore-1").Result(),
-			existingVGSCs: []*volumegroupsnapshotv1beta1.VolumeGroupSnapshotContent{
+			existingVGSCs: []*volumegroupsnapshotv1beta2.VolumeGroupSnapshotContent{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "vgsc-stub-1",
@@ -773,10 +931,10 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-1",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{
-							GroupSnapshotHandles: &volumegroupsnapshotv1beta1.GroupSnapshotHandles{
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{
+							GroupSnapshotHandles: &volumegroupsnapshotv1beta2.GroupSnapshotHandles{
 								VolumeGroupSnapshotHandle: "vgs-handle-1",
 								VolumeSnapshotHandles:     []string{snapshotHandle1},
 							},
@@ -814,7 +972,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 		{
 			name:    "multiple stub VGSCs deleted",
 			restore: builder.ForRestore(velerov1api.DefaultNamespace, "restore-1").Result(),
-			existingVGSCs: []*volumegroupsnapshotv1beta1.VolumeGroupSnapshotContent{
+			existingVGSCs: []*volumegroupsnapshotv1beta2.VolumeGroupSnapshotContent{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "vgsc-stub-1",
@@ -822,10 +980,10 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-1",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{
-							GroupSnapshotHandles: &volumegroupsnapshotv1beta1.GroupSnapshotHandles{
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{
+							GroupSnapshotHandles: &volumegroupsnapshotv1beta2.GroupSnapshotHandles{
 								VolumeGroupSnapshotHandle: "vgs-handle-1",
 								VolumeSnapshotHandles:     []string{snapshotHandle1},
 							},
@@ -839,10 +997,10 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-1",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{
-							GroupSnapshotHandles: &volumegroupsnapshotv1beta1.GroupSnapshotHandles{
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{
+							GroupSnapshotHandles: &volumegroupsnapshotv1beta2.GroupSnapshotHandles{
 								VolumeGroupSnapshotHandle: "vgs-handle-2",
 								VolumeSnapshotHandles:     []string{snapshotHandle2},
 							},
@@ -902,7 +1060,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 		{
 			name:    "VGSCs from different restore are not deleted",
 			restore: builder.ForRestore(velerov1api.DefaultNamespace, "restore-1").Result(),
-			existingVGSCs: []*volumegroupsnapshotv1beta1.VolumeGroupSnapshotContent{
+			existingVGSCs: []*volumegroupsnapshotv1beta2.VolumeGroupSnapshotContent{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "vgsc-stub-mine",
@@ -910,9 +1068,9 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-1",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{},
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{},
 					},
 				},
 				{
@@ -922,9 +1080,9 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-2",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{},
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{},
 					},
 				},
 			},
@@ -934,7 +1092,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 		{
 			name:    "VGSC deleted even when no snapshot handles in spec",
 			restore: builder.ForRestore(velerov1api.DefaultNamespace, "restore-1").Result(),
-			existingVGSCs: []*volumegroupsnapshotv1beta1.VolumeGroupSnapshotContent{
+			existingVGSCs: []*volumegroupsnapshotv1beta2.VolumeGroupSnapshotContent{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "vgsc-stub-empty",
@@ -942,9 +1100,9 @@ func TestCleanupStubVGSC(t *testing.T) {
 							velerov1api.RestoreNameLabel: "restore-1",
 						},
 					},
-					Spec: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSpec{
+					Spec: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSpec{
 						Driver: "rbd.csi.ceph.com",
-						Source: volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentSource{},
+						Source: volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentSource{},
 					},
 				},
 			},
@@ -980,7 +1138,7 @@ func TestCleanupStubVGSC(t *testing.T) {
 				assert.True(t, warnings.IsEmpty(), "expected no warnings")
 			}
 
-			remainingList := &volumegroupsnapshotv1beta1.VolumeGroupSnapshotContentList{}
+			remainingList := &volumegroupsnapshotv1beta2.VolumeGroupSnapshotContentList{}
 			require.NoError(t, fakeClient.List(t.Context(), remainingList))
 			assert.Len(t, remainingList.Items, tc.expectedRemaining)
 
