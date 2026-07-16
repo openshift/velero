@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
 
 	. "github.com/vmware-tanzu/velero/test"
 	. "github.com/vmware-tanzu/velero/test/util/k8s"
@@ -34,13 +34,11 @@ import (
 	. "github.com/vmware-tanzu/velero/test/util/velero"
 )
 
-// Test backup and restore of Kibishii using restic
-
 func BackupDeletionWithSnapshots() {
 	backup_deletion_test(true)
 }
 
-func BackupDeletionWithRestic() {
+func BackupDeletionWithFSBackup() {
 	backup_deletion_test(false)
 }
 func backup_deletion_test(useVolumeSnapshots bool) {

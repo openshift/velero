@@ -27,9 +27,9 @@ import (
 	"time"
 
 	logrusr "github.com/bombsimon/logrusr/v3"
-	volumegroupsnapshotv1beta1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta1"
+	"github.com/cockroachdb/errors"
+	volumegroupsnapshotv1beta2 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta2"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -57,6 +57,7 @@ import (
 
 	"github.com/vmware-tanzu/velero/internal/credentials"
 	"github.com/vmware-tanzu/velero/internal/hook"
+	"github.com/vmware-tanzu/velero/internal/resourcepolicies"
 	"github.com/vmware-tanzu/velero/internal/storage"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerov2alpha1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v2alpha1"
@@ -247,7 +248,7 @@ func newServer(f client.Factory, config *config.Config, logger *logrus.Logger) (
 		cancelFunc()
 		return nil, err
 	}
-	if err := volumegroupsnapshotv1beta1.AddToScheme(scheme); err != nil {
+	if err := volumegroupsnapshotv1beta2.AddToScheme(scheme); err != nil {
 		cancelFunc()
 		return nil, err
 	}
@@ -389,6 +390,14 @@ func (s *server) setupBeforeControllerRun() error {
 
 	if err := setDefaultBackupLocation(s.ctx, client, s.namespace, s.config.DefaultBackupLocation, s.logger); err != nil {
 		return err
+	}
+
+	// Validate the global backup volume policies ConfigMap early, so misconfigurations fail fast.
+	if s.config.GlobalBackupVolumePoliciesConfigMap != "" {
+		if _, err := resourcepolicies.GetGlobalResourcePolicies(client, s.namespace, s.config.GlobalBackupVolumePoliciesConfigMap, s.logger); err != nil {
+			return err
+		}
+		s.logger.WithField("configmap", s.config.GlobalBackupVolumePoliciesConfigMap).Info("Loaded global backup volume policies")
 	}
 	return nil
 }
@@ -671,6 +680,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.config.ItemBlockWorkerCount,
 			s.config.ConcurrentBackups,
 			s.crClient,
+			s.config.GlobalBackupVolumePoliciesConfigMap,
 		).SetupWithManager(s.mgr); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", constant.ControllerBackup)
 		}
@@ -1164,8 +1174,8 @@ func markPodVolumeRestoresCancel(ctx context.Context, client ctrlclient.Client, 
 
 	for i := range pvrs.Items {
 		pvr := pvrs.Items[i]
-		if controller.IsLegacyPVR(&pvr) {
-			log.WithField("PVR", pvr.GetName()).Warn("Found a legacy PVR during velero server restart, cannot stop it")
+		if _, err := uploader.ValidateUploaderType(pvr.Spec.UploaderType); err != nil {
+			log.WithField("PVR", pvr.Name).Warnf("invalid uploader type %s, skip marking cancel for this PVR", pvr.Spec.UploaderType)
 			continue
 		}
 

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -170,14 +170,14 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		OnProgress:  r.OnDataPathProgress,
 	}
 
-	fsBackup, err := r.dataPathMgr.CreateFileSystemBR(pvb.Name, podVolumeRequestor, ctx, r.client, pvb.Namespace, callbacks, log)
+	fsBackup, err := r.dataPathMgr.CreateGenericDataPath(pvb.Name, podVolumeRequestor, ctx, r.client, pvb.Namespace, callbacks, log)
 	if err != nil {
 		return "", errors.Wrap(err, "error to create data path")
 	}
 
 	log.Debug("Async fs br created")
 
-	if err := fsBackup.Init(ctx, &datapath.FSBRInitParam{
+	if err := fsBackup.Init(ctx, &datapath.InitParam{
 		BSLName:           pvb.Spec.BackupStorageLocation,
 		SourceNamespace:   pvb.Spec.Pod.Namespace,
 		UploaderType:      pvb.Spec.UploaderType,
@@ -193,7 +193,7 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 
 	tags := map[string]string{}
 
-	if err := fsBackup.StartBackup(r.sourceTargetPath, pvb.Spec.UploaderSettings, &datapath.FSBRStartParam{
+	if err := fsBackup.StartBackup(r.sourceTargetPath, pvb.Spec.UploaderSettings, &datapath.BackupStartParam{
 		RealSource:     GetRealSource(pvb),
 		ParentSnapshot: "",
 		ForceFull:      false,

@@ -23,8 +23,11 @@ import (
 
 const (
 	KopiaType            = "kopia"
+	BlockType            = "velero-block"
 	SnapshotRequesterTag = "snapshot-requester"
 	SnapshotUploaderTag  = "snapshot-uploader"
+	CBTChangeIDTag       = "cbt-change-id"
+	CBTVolumeIDTag       = "cbt-volume-id"
 )
 
 type PersistentVolumeMode string
@@ -40,16 +43,17 @@ const (
 // It will return an error if it's invalid.
 func ValidateUploaderType(t string) (string, error) {
 	t = strings.TrimSpace(t)
-	if t != KopiaType {
-		return "", fmt.Errorf("invalid uploader type '%s', valid type: '%s'", t, KopiaType)
+	if t != KopiaType && t != BlockType {
+		return "", fmt.Errorf("invalid uploader type '%s', valid types: '%s', '%s'", t, KopiaType, BlockType)
 	}
 
 	return "", nil
 }
 
 type SnapshotInfo struct {
-	ID   string `json:"id"`
-	Size int64  `json:"Size"`
+	ID              string
+	Size            int64
+	IncrementalSize int64
 }
 
 // Progress which defined two variables to record progress

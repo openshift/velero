@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	snapshotter "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -66,25 +66,26 @@ const (
 
 // DataUploadReconciler reconciles a DataUpload object
 type DataUploadReconciler struct {
-	client                client.Client
-	kubeClient            kubernetes.Interface
-	csiSnapshotClient     snapshotter.SnapshotV1Interface
-	mgr                   manager.Manager
-	Clock                 clocks.WithTickerAndDelayedExecution
-	nodeName              string
-	logger                logrus.FieldLogger
-	snapshotExposerList   map[velerov2alpha1api.SnapshotType]exposer.SnapshotExposer
-	dataPathMgr           *datapath.Manager
-	vgdpCounter           *exposer.VgdpCounter
-	loadAffinity          []*kube.LoadAffinity
-	backupPVCConfig       map[string]velerotypes.BackupPVC
-	podResources          corev1api.ResourceRequirements
-	preparingTimeout      time.Duration
-	metrics               *metrics.ServerMetrics
-	cancelledDataUpload   map[string]time.Time
-	dataMovePriorityClass string
-	podLabels             map[string]string
-	podAnnotations        map[string]string
+	client                         client.Client
+	kubeClient                     kubernetes.Interface
+	csiSnapshotClient              snapshotter.SnapshotV1Interface
+	mgr                            manager.Manager
+	Clock                          clocks.WithTickerAndDelayedExecution
+	nodeName                       string
+	logger                         logrus.FieldLogger
+	snapshotExposerList            map[velerov2alpha1api.SnapshotType]exposer.SnapshotExposer
+	dataPathMgr                    *datapath.Manager
+	vgdpCounter                    *exposer.VgdpCounter
+	loadAffinity                   []*kube.LoadAffinity
+	backupPVCConfig                map[string]velerotypes.BackupPVC
+	podResources                   corev1api.ResourceRequirements
+	preparingTimeout               time.Duration
+	metrics                        *metrics.ServerMetrics
+	cancelledDataUpload            map[string]time.Time
+	dataMovePriorityClass          string
+	podLabels                      map[string]string
+	podAnnotations                 map[string]string
+	snapshotMetadataServiceConfigs *velerotypes.CSISnapshotMetadataService
 }
 
 func NewDataUploadReconciler(
@@ -105,6 +106,7 @@ func NewDataUploadReconciler(
 	dataMovePriorityClass string,
 	podLabels map[string]string,
 	podAnnotations map[string]string,
+	snapshotMetadataServiceConfigs *velerotypes.CSISnapshotMetadataService,
 ) *DataUploadReconciler {
 	return &DataUploadReconciler{
 		client:            client,
@@ -121,17 +123,18 @@ func NewDataUploadReconciler(
 				log,
 			),
 		},
-		dataPathMgr:           dataPathMgr,
-		vgdpCounter:           counter,
-		loadAffinity:          loadAffinity,
-		backupPVCConfig:       backupPVCConfig,
-		podResources:          podResources,
-		preparingTimeout:      preparingTimeout,
-		metrics:               metrics,
-		cancelledDataUpload:   make(map[string]time.Time),
-		dataMovePriorityClass: dataMovePriorityClass,
-		podLabels:             podLabels,
-		podAnnotations:        podAnnotations,
+		dataPathMgr:                    dataPathMgr,
+		vgdpCounter:                    counter,
+		loadAffinity:                   loadAffinity,
+		backupPVCConfig:                backupPVCConfig,
+		podResources:                   podResources,
+		preparingTimeout:               preparingTimeout,
+		metrics:                        metrics,
+		cancelledDataUpload:            make(map[string]time.Time),
+		dataMovePriorityClass:          dataMovePriorityClass,
+		podLabels:                      podLabels,
+		podAnnotations:                 podAnnotations,
+		snapshotMetadataServiceConfigs: snapshotMetadataServiceConfigs,
 	}
 }
 
@@ -156,7 +159,7 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, errors.Wrap(err, "getting DataUpload")
 	}
 
-	if !datamover.IsBuiltInUploader(du.Spec.DataMover) {
+	if !datamover.IsBuiltInDataMover(du.Spec.DataMover) {
 		log.WithField("Data mover", du.Spec.DataMover).Debug("it is not one built-in data mover which is not supported by Velero")
 		return ctrl.Result{}, nil
 	}
@@ -460,9 +463,13 @@ func (r *DataUploadReconciler) initCancelableDataPath(ctx context.Context, async
 func (r *DataUploadReconciler) startCancelableDataPath(asyncBR datapath.AsyncBR, du *velerov2alpha1api.DataUpload, res *exposer.ExposeResult, log logrus.FieldLogger) error {
 	log.Info("Start cancelable dataUpload")
 
-	if err := asyncBR.StartBackup(datapath.AccessPoint{
-		ByPath: res.ByPod.VolumeName,
-	}, du.Spec.DataMoverConfig, nil); err != nil {
+	if err := asyncBR.StartBackup(
+		datapath.AccessPoint{
+			ByPath: res.ByPod.VolumeName,
+		},
+		du.Spec.DataMoverConfig,
+		nil,
+	); err != nil {
 		return errors.Wrapf(err, "error starting async backup for pod %s, volume %s", res.ByPod.HostingPod.Name, res.ByPod.VolumeName)
 	}
 
@@ -936,7 +943,12 @@ func (r *DataUploadReconciler) setupExposeParam(du *velerov2alpha1api.DataUpload
 			return nil, errors.Wrapf(err, "failed to get source PV %s", pvc.Spec.VolumeName)
 		}
 
-		nodeOS := kube.GetPVCAttachingNodeOS(pvc, r.kubeClient.CoreV1(), r.kubeClient.StorageV1(), log)
+		nodeOS := ""
+		if du.Spec.DataMover == datamover.DataMoverTypeVeleroBlock {
+			nodeOS = kube.NodeOSLinux
+		} else {
+			nodeOS = kube.GetPVCAttachingNodeOS(pvc, r.kubeClient.CoreV1(), r.kubeClient.StorageV1(), log)
+		}
 
 		if err := kube.HasNodeWithOS(context.Background(), nodeOS, r.kubeClient.CoreV1()); err != nil {
 			return nil, errors.Wrapf(err, "no appropriate node to run data upload for PVC %s/%s", du.Spec.SourceNamespace, du.Spec.SourcePVC)
@@ -993,23 +1005,25 @@ func (r *DataUploadReconciler) setupExposeParam(du *velerov2alpha1api.DataUpload
 		}
 
 		return &exposer.CSISnapshotExposeParam{
-			SnapshotName:          du.Spec.CSISnapshot.VolumeSnapshot,
-			SourceNamespace:       du.Spec.SourceNamespace,
-			SourcePVCName:         pvc.Name,
-			SourcePVName:          pv.Name,
-			StorageClass:          du.Spec.CSISnapshot.StorageClass,
-			HostingPodLabels:      hostingPodLabels,
-			HostingPodAnnotations: hostingPodAnnotation,
-			HostingPodTolerations: hostingPodTolerations,
-			AccessMode:            accessMode,
-			OperationTimeout:      du.Spec.OperationTimeout.Duration,
-			ExposeTimeout:         r.preparingTimeout,
-			VolumeSize:            pvc.Spec.Resources.Requests[corev1api.ResourceStorage],
-			Affinity:              r.loadAffinity,
-			BackupPVCConfig:       r.backupPVCConfig,
-			Resources:             r.podResources,
-			NodeOS:                nodeOS,
-			PriorityClassName:     r.dataMovePriorityClass,
+			SnapshotName:                   du.Spec.CSISnapshot.VolumeSnapshot,
+			SourceNamespace:                du.Spec.SourceNamespace,
+			SourcePVCName:                  pvc.Name,
+			SourcePVName:                   pv.Name,
+			StorageClass:                   du.Spec.CSISnapshot.StorageClass,
+			HostingPodLabels:               hostingPodLabels,
+			HostingPodAnnotations:          hostingPodAnnotation,
+			HostingPodTolerations:          hostingPodTolerations,
+			AccessMode:                     accessMode,
+			OperationTimeout:               du.Spec.OperationTimeout.Duration,
+			ExposeTimeout:                  r.preparingTimeout,
+			VolumeSize:                     pvc.Spec.Resources.Requests[corev1api.ResourceStorage],
+			Affinity:                       r.loadAffinity,
+			BackupPVCConfig:                r.backupPVCConfig,
+			Resources:                      r.podResources,
+			NodeOS:                         nodeOS,
+			PriorityClassName:              r.dataMovePriorityClass,
+			DataMover:                      du.Spec.DataMover,
+			SnapshotMetadataServiceConfigs: r.snapshotMetadataServiceConfigs,
 		}, nil
 	}
 

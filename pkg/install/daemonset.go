@@ -18,7 +18,7 @@ package install
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 
 	appsv1api "k8s.io/api/apps/v1"
@@ -68,8 +68,8 @@ func DaemonSet(namespace string, opts ...podTemplateOption) *appsv1api.DaemonSet
 	if c.forWindows {
 		dsName = "node-agent-windows"
 	}
-	hostPodsVolumePath := filepath.Join(c.kubeletRootDir, "pods")
-	hostPluginsVolumePath := filepath.Join(c.kubeletRootDir, "plugins")
+	hostPodsVolumePath := path.Join(strings.ReplaceAll(c.kubeletRootDir, "\\", "/"), "pods")
+	hostPluginsVolumePath := path.Join(strings.ReplaceAll(c.kubeletRootDir, "\\", "/"), "plugins")
 	volumes := []corev1api.Volume{}
 	volumeMounts := []corev1api.VolumeMount{}
 	if !c.nodeAgentDisableHostPath {
@@ -198,7 +198,8 @@ func DaemonSet(namespace string, opts ...podTemplateOption) *appsv1api.DaemonSet
 					Secret: &corev1api.SecretVolumeSource{
 						// read-only for Owner, Group, Public
 						DefaultMode: ptr.To(int32(0444)),
-						SecretName:  "cloud-credentials",
+						// #nosec G101 -- This is a reference to a Secret resource name, not a credential
+						SecretName: "cloud-credentials",
 					},
 				},
 			},

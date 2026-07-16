@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -53,6 +53,7 @@ const (
 	KubeAnnDynamicallyProvisioned = "pv.kubernetes.io/provisioned-by"
 	KubeAnnMigratedTo             = "pv.kubernetes.io/migrated-to"
 	KubeAnnSelectedNode           = "volume.kubernetes.io/selected-node"
+	KubeAnnAllowVolumeModeChange  = "snapshot.storage.kubernetes.io/allow-volume-mode-change"
 )
 
 // VolumeSnapshotContentManagedByLabel is applied by the snapshot controller

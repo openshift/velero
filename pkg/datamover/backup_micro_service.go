@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -68,6 +68,10 @@ type BackupMicroService struct {
 	duInformer cache.Informer
 	duHandler  cachetool.ResourceEventHandlerRegistration
 	nodeName   string
+
+	changeID   string
+	volumeID   string
+	snapshotID string
 }
 
 type dataPathResult struct {
@@ -77,7 +81,7 @@ type dataPathResult struct {
 
 func NewBackupMicroService(ctx context.Context, client client.Client, kubeClient kubernetes.Interface, dataUploadName string, namespace string, nodeName string,
 	sourceTargetPath datapath.AccessPoint, dataPathMgr *datapath.Manager, repoEnsurer *repository.Ensurer, cred *credentials.CredentialGetter,
-	duInformer cache.Informer, log logrus.FieldLogger) *BackupMicroService {
+	duInformer cache.Informer, changeID string, volumeID string, snapshotID string, log logrus.FieldLogger) *BackupMicroService {
 	return &BackupMicroService{
 		ctx:              ctx,
 		client:           client,
@@ -92,6 +96,9 @@ func NewBackupMicroService(ctx context.Context, client client.Client, kubeClient
 		nodeName:         nodeName,
 		resultSignal:     make(chan dataPathResult),
 		duInformer:       duInformer,
+		changeID:         changeID,
+		volumeID:         volumeID,
+		snapshotID:       snapshotID,
 	}
 }
 
@@ -171,14 +178,14 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		OnProgress:  r.OnDataUploadProgress,
 	}
 
-	fsBackup, err := r.dataPathMgr.CreateFileSystemBR(du.Name, dataUploadDownloadRequestor, ctx, r.client, du.Namespace, callbacks, log)
+	dp, err := r.dataPathMgr.CreateGenericDataPath(du.Name, dataUploadDownloadRequestor, ctx, r.client, du.Namespace, callbacks, log)
 	if err != nil {
 		return "", errors.Wrap(err, "error to create data path")
 	}
 
 	log.Debug("Async fs br created")
 
-	if err := fsBackup.Init(ctx, &datapath.FSBRInitParam{
+	if err := dp.Init(ctx, &datapath.InitParam{
 		BSLName:           du.Spec.BackupStorageLocation,
 		SourceNamespace:   du.Spec.SourceNamespace,
 		UploaderType:      GetUploaderType(du.Spec.DataMover),
@@ -196,11 +203,14 @@ func (r *BackupMicroService) RunCancelableDataPath(ctx context.Context) (string,
 		velerov1api.AsyncOperationIDLabel: du.Labels[velerov1api.AsyncOperationIDLabel],
 	}
 
-	if err := fsBackup.StartBackup(r.sourceTargetPath, du.Spec.DataMoverConfig, &datapath.FSBRStartParam{
+	if err := dp.StartBackup(r.sourceTargetPath, du.Spec.DataMoverConfig, &datapath.BackupStartParam{
 		RealSource:     GetRealSource(du.Spec.SourceNamespace, du.Spec.SourcePVC),
 		ParentSnapshot: "",
 		ForceFull:      false,
 		Tags:           tags,
+		VolumeID:       r.volumeID,
+		ChangeID:       r.changeID,
+		SnapshotID:     r.snapshotID,
 	}); err != nil {
 		return "", errors.Wrap(err, "error starting data path backup")
 	}
