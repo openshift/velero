@@ -58,22 +58,22 @@ type restoreMsTestHelper struct {
 	writeCompletionErr error
 }
 
-func (rt *restoreMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string) {
+func (rt *restoreMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	rt.eventLock.Lock()
 	defer rt.eventLock.Unlock()
 
 	rt.withEvent = true
 	rt.eventReason = reason
-	rt.eventMsg = message
+	rt.eventMsg = fmt.Sprintf(message, a...)
 }
 
-func (rt *restoreMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string) {
+func (rt *restoreMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	rt.eventLock.Lock()
 	defer rt.eventLock.Unlock()
 
 	rt.withEvent = true
 	rt.eventReason = reason
-	rt.eventMsg = message
+	rt.eventMsg = fmt.Sprintf(message, a...)
 }
 func (rt *restoreMsTestHelper) Shutdown() {}
 

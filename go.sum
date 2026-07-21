@@ -340,8 +340,6 @@ github.com/mattn/go-isatty v0.0.21 h1:xYae+lCNBP7QuW4PUnNG61ffM4hVIfm+zUzDuSzYLG
 github.com/mattn/go-isatty v0.0.21/go.mod h1:ZXfXG4SQHsB/w3ZeOYbR0PrPwLy+n6xiMrJlRFqopa4=
 github.com/mfridman/tparse v0.18.0 h1:wh6dzOKaIwkUGyKgOntDW4liXSo37qg5AXbIhkMV3vE=
 github.com/mfridman/tparse v0.18.0/go.mod h1:gEvqZTuCgEhPbYk/2lS3Kcxg1GmTxxU7kTC8DvP0i/A=
-github.com/migtools/kopia v0.0.0-20260714013826-f32d07a87d72 h1:g64l5Z90H3QSegqk/hDxIch/k1lHa6jp9oRCzFa8iYQ=
-github.com/migtools/kopia v0.0.0-20260714013826-f32d07a87d72/go.mod h1:ZWg0obXAEVxIms0aCLcPpFlYMHdH/WvhjxnKZVmSBRo=
 github.com/minio/crc64nvme v1.1.1 h1:8dwx/Pz49suywbO+auHCBpCtlW1OfpcLN7wYgVR6wAI=
 github.com/minio/crc64nvme v1.1.1/go.mod h1:eVfm2fAzLlxMdUGc0EEBGSMmPwmXD5XiNRpnu9J3bvg=
 github.com/minio/md5-simd v1.1.2 h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=
@@ -394,6 +392,8 @@ github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10/go.mod h1
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/project-velero/kopia v0.0.0-20260616052725-d83462d382c9 h1:sz/aL2lfvYvnbEmfbmVgjoT5NeGHSdDXQspuUnwScEU=
+github.com/project-velero/kopia v0.0.0-20260616052725-d83462d382c9/go.mod h1:iXcxxMES+wBh3cEDMli2gIO10Rkj3bMRrJGK4bQ7hsg=
 github.com/prometheus/client_golang v1.23.2 h1:Je96obch5RDVy3FDMndoUsjAhG5Edi49h0RJWRi/o0o=
 github.com/prometheus/client_golang v1.23.2/go.mod h1:Tb1a6LWHB3/SPIzCoaDXI4I8UHKeFTEQ1YCr+0Gyqmg=
 github.com/prometheus/client_model v0.6.2 h1:oBsgwpGs7iVziMvrGhE53c/GrLUsZdHnqNwqPLxwZyk=
@@ -450,8 +450,6 @@ github.com/vladimirvivien/gexe v0.4.0 h1:yk51bQu4HRlkt+MzXGQbSucvg7VIyOU4U0fR+aw
 github.com/vladimirvivien/gexe v0.4.0/go.mod h1:fp7cy60ON1xjhtEI/+bfSEIXX35qgmI+iRYlGOqbBFM=
 github.com/vmware-tanzu/crash-diagnostics v0.4.3 h1:bl3JmgTD/64DIwdaiCLJHmj2TIwqzRk1tOFsGXJ7+rw=
 github.com/vmware-tanzu/crash-diagnostics v0.4.3/go.mod h1:pIcBvCnsWg4PWrrFsEmNoRj5qvakOTfm7oyOa63zqgc=
-github.com/vmware-tanzu/velero/pkg/apis v0.0.0-20260713215154-c825e3c136bc h1:JwFvio/oC9GFNnTDf5w/Xp7dOh4iMAEQIqCaKMjv49k=
-github.com/vmware-tanzu/velero/pkg/apis v0.0.0-20260713215154-c825e3c136bc/go.mod h1:zxtjtSupjpT6oOO48gvFhOpTl3SOAkCwuGG7BOxN3Fk=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
