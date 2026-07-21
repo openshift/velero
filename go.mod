@@ -221,6 +221,6 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260714013826-f32d07a87d72
+replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260716165548-81dddf4e925a
 
 replace github.com/vmware-tanzu/velero/pkg/apis => ./pkg/apis
