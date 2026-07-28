@@ -10,11 +10,15 @@ jobs:
   # Build the Velero CLI and image once for all Kubernetes versions, and cache it so the fan-out workers can get it.
   build:
     runs-on: ubuntu-latest
+    outputs:
+      minio-dockerfile-sha: ${{ steps.minio-version.outputs.dockerfile_sha }}
     steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.5'
+          go-version-file: 'go.mod'
         id: go
       # Look for a CLI that's made for this PR
       - name: Fetch built CLI
@@ -31,17 +35,6 @@ jobs:
           path: ./velero.tar
           # The cache key a combination of the current PR number and the commit SHA
           key: velero-image-${{ github.event.pull_request.number }}-${{ github.sha }}
-      - name: Fetch cached go modules
-        uses: actions/cache@v4
-        if: steps.cli-cache.outputs.cache-hit != 'true'
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Check out the code
-        uses: actions/checkout@v4
-        if: steps.cli-cache.outputs.cache-hit != 'true' || steps.image-cache.outputs.cache-hit != 'true'
       # If no binaries were built for this PR, build it now.
       - name: Build Velero CLI
         if: steps.cli-cache.outputs.cache-hit != 'true'
@@ -53,6 +46,42 @@ jobs:
         run: |
           IMAGE=velero VERSION=pr-test make container
           docker save velero:pr-test -o ./velero.tar
+      - name: Check Bitnami MinIO Dockerfile version
+        id: minio-version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url="https://api.github.com/repos/bitnami/containers/commits?path=bitnami/minio/2026/debian-12/Dockerfile&per_page=1"
+          response="$(curl --fail-with-body -sS \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$url")"
+          DOCKERFILE_SHA="$(echo "$response" | jq -r '.[0].sha // empty')"
+          if [ -z "$DOCKERFILE_SHA" ]; then
+            echo "Failed to resolve Bitnami MinIO Dockerfile SHA from GitHub API response"
+            echo "$response"
+            exit 1
+          fi
+          echo "dockerfile_sha=${DOCKERFILE_SHA}" >> "$GITHUB_OUTPUT"
+      - name: Cache MinIO Image
+        uses: actions/cache@v4
+        id: minio-cache
+        with:
+          path: ./minio-image.tar
+          key: minio-bitnami-${{ steps.minio-version.outputs.dockerfile_sha }}
+      - name: Build MinIO Image from Bitnami Dockerfile
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "Building MinIO image from Bitnami Dockerfile..."
+          git clone --depth 1 https://github.com/bitnami/containers.git /tmp/bitnami-containers
+          cd /tmp/bitnami-containers/bitnami/minio/2026/debian-12
+          docker build -t bitnami/minio:local .
+          docker save bitnami/minio:local > ${{ github.workspace }}/minio-image.tar
   # Run E2E test against all Kubernetes versions on kind
   run-e2e-test:
     needs: build
@@ -79,16 +108,26 @@ jobs:
           - Basic\]\[StorageClass
       fail-fast: false
     steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.5'
+          go-version-file: 'go.mod'
         id: go
-      - name: Check out the code
-        uses: actions/checkout@v4
+      - name: Fetch built MinIO Image
+        uses: actions/cache@v4
+        id: minio-cache
+        with:
+          path: ./minio-image.tar
+          key: minio-bitnami-${{ needs.build.outputs.minio-dockerfile-sha }}
+      - name: Load MinIO Image
+        run: |
+          echo "Loading MinIO image..."
+          docker load < ./minio-image.tar
       - name: Install MinIO
-        run:
-          docker run -d --rm -p 9000:9000 -e "MINIO_ACCESS_KEY=minio" -e "MINIO_SECRET_KEY=minio123" -e "MINIO_DEFAULT_BUCKETS=bucket,additional-bucket" bitnami/minio:2021.6.17-debian-10-r7
+        run: |
+          docker run -d --rm -p 9000:9000 -e "MINIO_ROOT_USER=minio" -e "MINIO_ROOT_PASSWORD=minio123" -e "MINIO_DEFAULT_BUCKETS=bucket,additional-bucket" bitnami/minio:local
       - uses: engineerd/setup-kind@v0.5.0
         with:
           version: "v0.21.0"
@@ -108,14 +147,6 @@ jobs:
       - name: Load Velero Image
         run:
           kind load image-archive velero.tar
-      # always try to fetch the cached go modules as the e2e test needs it either
-      - name: Fetch cached go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       - name: Run E2E test
         run: |
           cat << EOF > /tmp/credential

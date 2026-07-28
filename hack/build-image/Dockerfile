@@ -27,7 +27,7 @@ RUN go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-2025051
     cp -r $(setup-envtest use -p path)/* /usr/local/kubebuilder/bin/
 
 # get controller-tools
-RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0
+RUN go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.5
 
 # get goimports (the revision is pinned so we don't indiscriminately update, but the particular commit
 # is not important)
