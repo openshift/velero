@@ -165,6 +165,7 @@ jobs:
               ADDITIONAL_OBJECT_STORE_PROVIDER=aws ADDITIONAL_BSL_CONFIG=region=minio,s3ForcePathStyle="true",s3Url=http://$(hostname -i):9000 \
               ADDITIONAL_CREDS_FILE=/tmp/credential ADDITIONAL_BSL_BUCKET=additional-bucket \
               GINKGO_FOCUS='${{ matrix.focus }}' VELERO_IMAGE=velero:pr-test \
+              PLUGINS=velero/velero-plugin-for-aws:latest \
               GINKGO_SKIP='SKIP_KIND|pv-backup|Restic|Snapshot|LongTime' \
               make -C test/ run-e2e
         timeout-minutes: 30
