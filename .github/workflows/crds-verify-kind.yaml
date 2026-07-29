@@ -11,10 +11,12 @@ jobs:
   build-cli:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.22.5'
+          go-version-file: 'go.mod'
         id: go
       # Look for a CLI that's made for this PR
       - name: Fetch built CLI
@@ -38,10 +40,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
-      - name: Check out the code
-        uses: actions/checkout@v7
-        if: steps.cache.outputs.cache-hit != 'true'
 
       # If no binaries were built for this PR, build it now.
       - name: Build Velero CLI
