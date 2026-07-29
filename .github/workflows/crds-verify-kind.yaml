@@ -12,14 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.22.5'
         id: go
       # Look for a CLI that's made for this PR
       - name: Fetch built CLI
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         env:
           cache-name: cache-velero-cli
         with:
@@ -31,7 +31,7 @@ jobs:
             velero-${{ github.event.pull_request.number }}-
 
       - name: Fetch cached go modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           path: ~/go/pkg/mod
@@ -40,7 +40,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         if: steps.cache.outputs.cache-hit != 'true'
 
       # If no binaries were built for this PR, build it now.
@@ -69,7 +69,7 @@ jobs:
     steps:
       - name: Fetch built CLI
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         env:
           cache-name: cache-velero-cli
         with:

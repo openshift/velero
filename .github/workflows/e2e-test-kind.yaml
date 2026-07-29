@@ -14,23 +14,23 @@ jobs:
       minio-dockerfile-sha: ${{ steps.minio-version.outputs.dockerfile_sha }}
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
         id: go
       # Look for a CLI that's made for this PR
       - name: Fetch built CLI
         id: cli-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./_output/bin/linux/amd64/velero
           # The cache key a combination of the current PR number and the commit SHA
           key: velero-cli-${{ github.event.pull_request.number }}-${{ github.sha }}
       - name: Fetch built image
         id: image-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./velero.tar
           # The cache key a combination of the current PR number and the commit SHA
@@ -69,7 +69,7 @@ jobs:
           fi
           echo "dockerfile_sha=${DOCKERFILE_SHA}" >> "$GITHUB_OUTPUT"
       - name: Cache MinIO Image
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: minio-cache
         with:
           path: ./minio-image.tar
@@ -109,14 +109,14 @@ jobs:
       fail-fast: false
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
         id: go
       - name: Fetch built MinIO Image
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: minio-cache
         with:
           path: ./minio-image.tar
@@ -134,13 +134,13 @@ jobs:
           image: "kindest/node:v${{ matrix.k8s }}"
       - name: Fetch built CLI
         id: cli-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./_output/bin/linux/amd64/velero
           key: velero-cli-${{ github.event.pull_request.number }}-${{ github.sha }}
       - name: Fetch built Image
         id: image-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./velero.tar
           key: velero-image-${{ github.event.pull_request.number }}-${{ github.sha }}
