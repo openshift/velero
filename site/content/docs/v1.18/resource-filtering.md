@@ -5,8 +5,8 @@ layout: docs
 
 *Filter objects by namespace, type, labels or resource policies.*
 
-This page describes how to filter resource for backup and restore.
-User could use the include and exclude flags with the `velero backup` and `velero restore` commands. And user could also use resource policies to handle backup.
+This page describes how to filter resources for backup and restore.
+Users can use include and exclude flags with the `velero backup` and `velero restore` commands. Users can also use resource policies for fine-grained resource filtering during backup and restore, as well as volume handling during backup.
 By default, Velero includes all objects in a backup or restore when no filtering options are used.
 
 ## Includes
@@ -229,99 +229,139 @@ Kubernetes namespace resources to exclude from the backup, formatted as resource
   ```
 
 ## Resource policies
-Velero provides resource policies to filter resources to do backup, which may contain `includeExcludePolicy` and `volumePolicies`.
 
-### Creating resource policies
+Velero provides resource policies (defined in a ConfigMap and referenced via `--resource-policies-configmap` or `spec.resourcePolicy`) to define fine-grained resource filters and volume handling rules.
 
-Below is the two-step of using resource policies in backup:
-1. Creating resource policies configmap
+Resource policies support both **Backup** and **Restore** operations, though certain policy sections are specific to backup workflows.
 
-   Users need to create one configmap in Velero install namespace from a YAML file that defined resource policies. The creating command would be like the below:
+### Supported policy sections by operation
+
+| Policy Section | Description | Supported Operations | Learn More |
+| --- | --- | --- | --- |
+| `namespacedFilterPolicies` | Fine-grained per-namespace and per-kind filters with label selectors and resource name patterns. | **Backup** & **Restore** | [Fine-Grained Backup Filters](fine-grained-backup-filters.md) / [Fine-Grained Restore Filters](fine-grained-restore-filters.md) |
+| `clusterScopedFilterPolicy` | Fine-grained cluster-scoped filter overlays with per-kind label selectors and resource name patterns. | **Backup** & **Restore** | [Fine-Grained Backup Filters](fine-grained-backup-filters.md) / [Fine-Grained Restore Filters](fine-grained-restore-filters.md) |
+| `volumePolicies` | Rules to control volume data backup methods (`skip`, `snapshot`, `fs-backup`) based on conditions. | **Backup** only | See [VolumePolicy](#volumepolicy-backup-only) |
+| `includeExcludePolicy` | Reusable scoped resource include/exclude filters. | **Backup** only | See [IncludeExcludePolicy](#includeexcludepolicy-backup-only) |
+
+### Creating and referencing resource policies
+
+Using resource policies is a two-step process:
+
+1. **Create the resource policies ConfigMap**
+
+   Create a ConfigMap in the Velero installation namespace (typically `velero`) containing your YAML policy definition:
    ```bash
    kubectl create cm <configmap-name> --from-file <yaml-file> -n velero
    ```
-2. Creating a backup reference to the defined resource policies
 
-   Users create a backup with the flag `--resource-policies-configmap`, which will reference the current backup to the defined resource policies. The creating command would be like the below:
-   ```bash
-   velero backup create --resource-policies-configmap <configmap-name>
-   ```
-   This flag could also be combined with the other include and exclude filters above
+2. **Reference the resource policies ConfigMap in a Backup or Restore**
+
+   * **For Backup:** Reference the ConfigMap via CLI flag or in the Backup CR spec:
+     ```bash
+     velero backup create <backup-name> --resource-policies-configmap <configmap-name>
+     ```
+     Or in `Backup.spec`:
+     ```yaml
+     spec:
+       resourcePolicy:
+         kind: ConfigMap
+         name: <configmap-name>
+     ```
+
+   * **For Restore:** Reference the ConfigMap via CLI flag or in the Restore CR spec:
+     ```bash
+     velero restore create <restore-name> --from-backup <backup-name> --resource-policies-configmap <configmap-name>
+     ```
+     Or in `Restore.spec`:
+     ```yaml
+     spec:
+       resourcePolicy:
+         kind: ConfigMap
+         name: <configmap-name>
+     ```
+
+   These flags and fields can also be combined with standard include and exclude options.
 
 ### YAML template
-The policies YAML config file would look like this:
-- Yaml template:
-    ```yaml
-    # currently only supports v1 version
-    version: v1
-    # The filters in includeExcludePolicy work the same as the scoped resources filters in the Spec of a Backup 
-    # NOTE: similar to scoped filters in Backup Spec, the includeExcludePolicy does not work with --include-resources, --exclude-resources and --include-cluster-resources filters in Backup.
-    includeExcludePolicy:
-      includedClusterScopedResources:
-        - "crd"
-        - "pv"
-      excludedClusterScopedResources: []
-      includedNamespaceScopedResources:
-        - "pod"
-        - "service"
-        - "deployment"
-        - "pvc"
-      excludedNamespaceScopedResources:
-        - "configmap"
-        - "secret"
-    volumePolicies:
-    # each policy consists of a list of conditions and an action
-    # we could have lots of policies, but if the resource matched the first policy, the latter will be ignored
-    # each key in the object is one condition, and one policy will apply to resources that meet ALL conditions
-    # NOTE: capacity or storageClass is suited for [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes), and pod [Volume](https://kubernetes.io/docs/concepts/storage/volumes) not support it.
-    - conditions:
-        # capacity condition matches the volumes whose capacity falls into the range
-        capacity: "10,100Gi"
-        # pv matches specific csi driver
-        csi:
-          driver: ebs.csi.aws.com
-        # pv matches one of the storage class list
-        storageClass:
-          - gp2
-          - standard
-        # pvc matches specific phase(s)
-        pvcPhase:
-          - Pending
-      action:
-        type: skip
-    - conditions:
-        capacity: "0,100Gi"
-        # nfs volume source with specific server and path (nfs could be empty or only config server or path)
-        nfs:
-          server: 192.168.200.90
-          path: /mnt/data
-      action:
-        type: skip
-    - conditions:
-        nfs:
-          server: 192.168.200.90
-      action:
-        type: fs-backup
-    - conditions:
-        # nfs could be empty which matches any nfs volume source
-        nfs: {}
-      action:
-        type: skip
-    - conditions:
-        # csi could be empty which matches any csi volume source
-        csi: {}
-      action:
-        type: snapshot
-    - conditions:
-        volumeTypes:
-          - emptyDir
-          - downwardAPI
-          - configmap
-          - cinder
-      action:
-        type: skip
-    ```
-### IncludeExcludePolicy
+
+The policies YAML config file showing all supported sections:
+
+```yaml
+# Currently supports v1 version
+version: v1
+
+# Fine-grained namespace-scoped filters (Supported for both Backup and Restore)
+namespacedFilterPolicies:
+  - namespace: "app-ns-*"
+    resourceFilters:
+      - kind: "deployment"
+        labelSelector:
+          matchLabels:
+            app: frontend
+        includedResourceNames:
+          - "web-*"
+      - kind: "secret"
+        excludedResourceNames:
+          - "sensitive-secret"
+
+# Fine-grained cluster-scoped filter overlay (Supported for both Backup and Restore)
+clusterScopedFilterPolicy:
+  resourceFilters:
+    - kind: "storageclass"
+      labelSelector:
+        matchLabels:
+          tier: gold
+
+# Volume handling policies (Supported for Backup ONLY)
+volumePolicies:
+  - conditions:
+      capacity: "10,100Gi"
+      csi:
+        driver: ebs.csi.aws.com
+      storageClass:
+        - gp2
+        - standard
+      pvcPhase:
+        - Pending
+      pvcVolumeMode: Block
+      pvcAccessModes:
+        - ReadWriteOnce
+    action:
+      type: skip
+  - conditions:
+      nfs: {}
+    action:
+      type: fs-backup
+
+# Legacy scoped resource include/exclude filters (Supported for Backup ONLY)
+# NOTE: Cannot be combined with --include-resources, --exclude-resources, or --include-cluster-resources in Backup.
+includeExcludePolicy:
+  includedClusterScopedResources:
+    - "crd"
+    - "pv"
+  excludedClusterScopedResources: []
+  includedNamespaceScopedResources:
+    - "pod"
+    - "service"
+    - "deployment"
+    - "pvc"
+  excludedNamespaceScopedResources:
+    - "configmap"
+    - "secret"
+```
+
+### Fine-grained backup and restore filters
+
+`namespacedFilterPolicies` and `clusterScopedFilterPolicy` allow defining per-namespace and per-kind rules with independent label selectors and resource name patterns.
+
+* **During Backup:** Controls which resources are backed up from matching namespaces or kinds.
+* **During Restore:** Controls which resources are restored from a backup archive without modifying the backup itself.
+
+For comprehensive guides, syntax details, and detailed examples, see:
+* [Fine-Grained Backup Filters](fine-grained-backup-filters.md)
+* [Fine-Grained Restore Filters](fine-grained-restore-filters.md)
+
+### IncludeExcludePolicy (Backup only)
 The `includeExcludePolicy` is used to filter resources based on the namespace-scoped and cluster-scoped resources. User can use it 
 to define a group of filters and reuse them across different backups.
 
@@ -360,7 +400,7 @@ velero backup create <backup-name> --resource-policies-configmap my-policy --inc
 The backup will include all resources in namespace `my-workload-ns`, including `configmap` and `event`, and all CRDs and
 `apiservices` in the cluster.
 
-### VolumePolicy
+### VolumePolicy (Backup only)
 VolumePolicy is a data structure to control how velero handle the volumes matching certain conditions.
 
 #### Supported VolumePolicy actions
