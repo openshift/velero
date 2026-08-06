@@ -679,3 +679,143 @@ func TestPVCBackupSummary(t *testing.T) {
 	assert.Empty(t, pbs.Skipped)
 	assert.Len(t, pbs.Backedup, 2)
 }
+
+func TestBackupperEventHandlerWaitGroupLogic(t *testing.T) {
+	scheme := runtime.NewScheme()
+	velerov1api.AddToScheme(scheme)
+	corev1api.AddToScheme(scheme)
+
+	tests := []struct {
+		name              string
+		oldPVBStatus      *velerov1api.PodVolumeBackupStatus
+		newPVBStatus      *velerov1api.PodVolumeBackupStatus
+		expectedDoneCalls int
+		description       string
+	}{
+		{
+			name:              "first transition to completed status",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseInProgress},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseCompleted},
+			expectedDoneCalls: 1,
+			description:       "WaitGroup.Done() should be called once when transitioning to completed",
+		},
+		{
+			name:              "first transition to failed status",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseInProgress},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseFailed},
+			expectedDoneCalls: 1,
+			description:       "WaitGroup.Done() should be called once when transitioning to failed",
+		},
+		{
+			name:              "multiple updates with completed status",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseCompleted},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseCompleted},
+			expectedDoneCalls: 0,
+			description:       "WaitGroup.Done() should NOT be called when PVB is already completed",
+		},
+		{
+			name:              "multiple updates with failed status",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseFailed},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseFailed},
+			expectedDoneCalls: 0,
+			description:       "WaitGroup.Done() should NOT be called when PVB is already failed",
+		},
+		{
+			name:              "transition from new to completed",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseNew},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseCompleted},
+			expectedDoneCalls: 1,
+			description:       "WaitGroup.Done() should be called when transitioning from new to completed",
+		},
+		{
+			name:              "transition from new to failed",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseNew},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseFailed},
+			expectedDoneCalls: 1,
+			description:       "WaitGroup.Done() should be called when transitioning from new to failed",
+		},
+		{
+			name:              "no transition for non-final status",
+			oldPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseNew},
+			newPVBStatus:      &velerov1api.PodVolumeBackupStatus{Phase: velerov1api.PodVolumeBackupPhaseInProgress},
+			expectedDoneCalls: 0,
+			description:       "WaitGroup.Done() should NOT be called for non-final status transitions",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create backup with UID for label matching
+			backup := &velerov1api.Backup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-backup",
+					Namespace: velerov1api.DefaultNamespace,
+					UID:       "test-backup-uid",
+				},
+			}
+
+			// Create old and new PVB objects
+			oldPVB := &velerov1api.PodVolumeBackup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvb",
+					Namespace: velerov1api.DefaultNamespace,
+					Labels: map[string]string{
+						velerov1api.BackupUIDLabel: string(backup.UID),
+					},
+				},
+				Status: *test.oldPVBStatus,
+			}
+
+			newPVB := &velerov1api.PodVolumeBackup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvb",
+					Namespace: velerov1api.DefaultNamespace,
+					Labels: map[string]string{
+						velerov1api.BackupUIDLabel: string(backup.UID),
+					},
+				},
+				Status: *test.newPVBStatus,
+			}
+
+			// Track Done() calls using a counter
+			doneCallCount := 0
+
+			// Create a custom UpdateFunc that mirrors the actual implementation
+			updateFunc := func(oldObj, newObj interface{}) {
+				pvb := newObj.(*velerov1api.PodVolumeBackup)
+
+				if pvb.GetLabels()[velerov1api.BackupUIDLabel] != string(backup.UID) {
+					return
+				}
+
+				if pvb.Status.Phase != velerov1api.PodVolumeBackupPhaseCompleted &&
+					pvb.Status.Phase != velerov1api.PodVolumeBackupPhaseFailed {
+					return
+				}
+
+				// Check if the previous state was already in a final status
+				statusChangedToFinal := true
+				if oldPvb, ok := oldObj.(*velerov1api.PodVolumeBackup); ok {
+					// If the PVB was already in a final status, no need to call WaitGroup.Done()
+					if oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseCompleted ||
+						oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseFailed {
+						statusChangedToFinal = false
+					}
+				}
+
+				// Call WaitGroup.Done() once only when the PVB changes to final status the first time.
+				// This avoids the cases where the handler gets multiple update events whose PVBs are all in final status
+				// which causes panic with "negative WaitGroup counter" error
+				if statusChangedToFinal {
+					doneCallCount++
+				}
+			}
+
+			// Test the UpdateFunc directly
+			updateFunc(oldPVB, newPVB)
+
+			// Verify the expected number of Done() calls
+			assert.Equal(t, test.expectedDoneCalls, doneCallCount, test.description)
+		})
+	}
+}

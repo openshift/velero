@@ -121,8 +121,8 @@ func newBackupper(
 
 	b.handlerRegistration, _ = pvbInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, obj interface{}) {
-				pvb := obj.(*velerov1api.PodVolumeBackup)
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				pvb := newObj.(*velerov1api.PodVolumeBackup)
 
 				if pvb.GetLabels()[velerov1api.BackupUIDLabel] != string(backup.UID) {
 					return
@@ -133,8 +133,24 @@ func newBackupper(
 					return
 				}
 
+				// Check if the previous state was already in a final status
+				statusChangedToFinal := true
+				if oldPvb, ok := oldObj.(*velerov1api.PodVolumeBackup); ok {
+					// If the PVB was already in a final status, no need to call WaitGroup.Done()
+					if oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseCompleted ||
+						oldPvb.Status.Phase == velerov1api.PodVolumeBackupPhaseFailed {
+						statusChangedToFinal = false
+					}
+				}
+
 				b.result = append(b.result, pvb)
-				b.wg.Done()
+
+				// Call WaitGroup.Done() once only when the PVB changes to final status the first time.
+				// This avoids the cases where the handler gets multiple update events whose PVBs are all in final status
+				// which causes panic with "negative WaitGroup counter" error
+				if statusChangedToFinal {
+					b.wg.Done()
+				}
 			},
 		},
 	)
