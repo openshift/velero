@@ -57,8 +57,9 @@ type podTemplateConfig struct {
 	podResources                    kube.PodResources
 	keepLatestMaintenanceJobs       int
 	backupRepoConfigMap             string
-	repoMaintenanceJobConfigMap     string
-	nodeAgentConfigMap              string
+	repoMaintenanceJobConfigMap      string
+	defaultResourceModifierConfigMap string
+	nodeAgentConfigMap               string
 	itemBlockWorkerCount            int
 	concurrentBackups               int
 	forWindows                      bool

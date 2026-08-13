@@ -269,8 +269,9 @@ type VeleroOptions struct {
 	PodResources                    kube.PodResources
 	KeepLatestMaintenanceJobs       int
 	BackupRepoConfigMap             string
-	RepoMaintenanceJobConfigMap     string
-	NodeAgentConfigMap              string
+	RepoMaintenanceJobConfigMap      string
+	DefaultResourceModifierConfigMap string
+	NodeAgentConfigMap               string
 	ItemBlockWorkerCount            int
 	ConcurrentBackups               int
 	KubeletRootDir                  string

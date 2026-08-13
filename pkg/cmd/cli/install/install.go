@@ -87,8 +87,9 @@ type Options struct {
 	PodResources                    kubeutil.PodResources
 	KeepLatestMaintenanceJobs       int
 	BackupRepoConfigMap             string
-	RepoMaintenanceJobConfigMap     string
-	NodeAgentConfigMap              string
+	RepoMaintenanceJobConfigMap      string
+	DefaultResourceModifierConfigMap string
+	NodeAgentConfigMap               string
 	ItemBlockWorkerCount            int
 	ConcurrentBackups               int
 	NodeAgentDisableHostPath        bool
@@ -339,8 +340,9 @@ func (o *Options) AsVeleroOptions() (*install.VeleroOptions, error) {
 		PodResources:                    o.PodResources,
 		KeepLatestMaintenanceJobs:       o.KeepLatestMaintenanceJobs,
 		BackupRepoConfigMap:             o.BackupRepoConfigMap,
-		RepoMaintenanceJobConfigMap:     o.RepoMaintenanceJobConfigMap,
-		NodeAgentConfigMap:              o.NodeAgentConfigMap,
+		RepoMaintenanceJobConfigMap:      o.RepoMaintenanceJobConfigMap,
+		DefaultResourceModifierConfigMap: o.DefaultResourceModifierConfigMap,
+		NodeAgentConfigMap:               o.NodeAgentConfigMap,
 		ItemBlockWorkerCount:            o.ItemBlockWorkerCount,
 		ConcurrentBackups:               o.ConcurrentBackups,
 		KubeletRootDir:                  o.kubeletRootDir,
