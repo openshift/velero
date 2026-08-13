@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/builder"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
+	"github.com/vmware-tanzu/velero/pkg/cmd/cli"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/flag"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/output"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
@@ -74,6 +75,10 @@ func NewCreateCommand(f client.Factory, use string) *cobra.Command {
 	o.BindFromSchedule(c.Flags())
 	output.BindFlags(c.Flags())
 	output.ClearOutputFlagDefault(c)
+
+	_ = c.RegisterFlagCompletionFunc("from-schedule", cli.CompleteScheduleNames(f))
+	_ = c.RegisterFlagCompletionFunc("storage-location", cli.CompleteBackupStorageLocationNames(f))
+	_ = c.RegisterFlagCompletionFunc("volume-snapshot-locations", cli.CompleteVolumeSnapshotLocationNames(f))
 
 	return c
 }
@@ -237,11 +242,17 @@ func (o *CreateOptions) validateFromScheduleFlag(c *cobra.Command) error {
 	return nil
 }
 
+// validateBackupType check the backupType value and return the valid value.
 func (o *CreateOptions) validateBackupType() error {
-	backupType := strings.TrimSpace(o.BackupType)
+	// Allow full, and incremental from the CLI, and ignore case of the input string's case.
+	backupType := strings.ToLower(strings.TrimSpace(o.BackupType))
 
 	switch backupType {
-	case "", "Incremental", "Full":
+	case "":
+	case "incremental":
+		o.BackupType = string(velerov1api.BackupTypeIncremental)
+	case "full":
+		o.BackupType = string(velerov1api.BackupTypeFull)
 	default:
 		return fmt.Errorf("invalid backup type %s - valid values are 'Incremental', and 'Full'", backupType)
 	}

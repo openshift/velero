@@ -58,22 +58,22 @@ type restoreMsTestHelper struct {
 	writeCompletionErr error
 }
 
-func (rt *restoreMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string) {
+func (rt *restoreMsTestHelper) Event(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	rt.eventLock.Lock()
 	defer rt.eventLock.Unlock()
 
 	rt.withEvent = true
 	rt.eventReason = reason
-	rt.eventMsg = message
+	rt.eventMsg = fmt.Sprintf(message, a...)
 }
 
-func (rt *restoreMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string) {
+func (rt *restoreMsTestHelper) EndingEvent(_ runtime.Object, _ bool, reason string, message string, a ...any) {
 	rt.eventLock.Lock()
 	defer rt.eventLock.Unlock()
 
 	rt.withEvent = true
 	rt.eventReason = reason
-	rt.eventMsg = message
+	rt.eventMsg = fmt.Sprintf(message, a...)
 }
 func (rt *restoreMsTestHelper) Shutdown() {}
 
@@ -436,12 +436,12 @@ func TestRunCancelableDataPathRestore(t *testing.T) {
 
 				if test.startErr != nil {
 					fsBR.On("Init", mock.Anything, mock.Anything).Return(nil)
-					fsBR.On("StartRestore", mock.Anything, mock.Anything, mock.Anything).Return(test.startErr)
+					fsBR.On("StartRestore", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(test.startErr)
 				}
 
 				if test.dataPathStarted {
 					fsBR.On("Init", mock.Anything, mock.Anything).Return(nil)
-					fsBR.On("StartRestore", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+					fsBR.On("StartRestore", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				}
 
 				return fsBR

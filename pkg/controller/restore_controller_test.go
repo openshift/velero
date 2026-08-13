@@ -116,6 +116,7 @@ func TestFetchBackupInfo(t *testing.T) {
 				false,
 				fakeGlobalClient,
 				10*time.Minute,
+				"",
 			)
 
 			if test.backupStoreError == nil {
@@ -197,6 +198,7 @@ func TestProcessQueueItemSkips(t *testing.T) {
 				false,
 				fakeGlobalClient,
 				10*time.Minute,
+				"",
 			)
 
 			_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: types.NamespacedName{
@@ -579,6 +581,7 @@ func TestRestoreReconcile(t *testing.T) {
 				false,
 				fakeGlobalClient,
 				10*time.Minute,
+				"",
 			)
 
 			r.clock = clocktesting.NewFakeClock(now)
@@ -767,6 +770,7 @@ func TestValidateAndCompleteWhenScheduleNameSpecified(t *testing.T) {
 		false,
 		fakeGlobalClient,
 		10*time.Minute,
+		"",
 	)
 
 	restore := &velerov1api.Restore{
@@ -863,6 +867,7 @@ func TestValidateAndCompleteWithResourcePolicySpecified(t *testing.T) {
 		false,
 		fakeGlobalClient,
 		10*time.Minute,
+		"",
 	)
 
 	restore := &velerov1api.Restore{
@@ -992,6 +997,7 @@ func TestValidateAndCompleteWithResourceModifierSpecified(t *testing.T) {
 		false,
 		fakeGlobalClient,
 		10*time.Minute,
+		"",
 	)
 
 	restore := &velerov1api.Restore{
@@ -1108,6 +1114,184 @@ func TestValidateAndCompleteWithResourceModifierSpecified(t *testing.T) {
 
 	r.validateAndComplete(t.Context(), restore3)
 	assert.Contains(t, restore3.Status.ValidationErrors[0], "Validation error in resource modifiers provided in configmap")
+}
+
+func TestValidateAndCompleteWithDefaultResourceModifier(t *testing.T) {
+	formatFlag := logging.FormatText
+
+	validCMData := map[string]string{
+		"modifiers.yaml": "version: v1\nresourceModifierRules:\n- conditions:\n    groupResource: pods\n  mergePatches:\n  - patchData: |\n      metadata:\n        annotations:\n          k8s.ovn.org/pod-networks: null\n",
+	}
+
+	setupReconciler := func(t *testing.T, defaultCM string) *restoreReconciler {
+		t.Helper()
+		fakeClient := velerotest.NewFakeControllerRuntimeClient(t)
+		fakeGlobalClient := velerotest.NewFakeControllerRuntimeClient(t)
+		pluginManager := &pluginmocks.Manager{}
+		backupStore := &persistencemocks.BackupStore{}
+
+		r := NewRestoreReconciler(
+			t.Context(),
+			velerov1api.DefaultNamespace,
+			nil,
+			fakeClient,
+			velerotest.NewLogger(),
+			logrus.DebugLevel,
+			func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
+			NewFakeSingleObjectBackupStoreGetter(backupStore),
+			metrics.NewServerMetrics(),
+			formatFlag,
+			60*time.Minute,
+			false,
+			fakeGlobalClient,
+			10*time.Minute,
+			defaultCM,
+		)
+
+		location := builder.ForBackupStorageLocation("velero", "default").Provider("myCloud").Bucket("bucket").Phase(velerov1api.BackupStorageLocationPhaseAvailable).Result()
+		require.NoError(t, r.kbClient.Create(t.Context(), location))
+		require.NoError(t, r.kbClient.Create(t.Context(),
+			defaultBackup().ObjectMeta(builder.WithName("backup-1")).StorageLocation("default").Phase(velerov1api.BackupPhaseCompleted).Result(),
+		))
+		return r
+	}
+
+	newRestore := func(perRestoreCM string, skip *bool) *velerov1api.Restore {
+		restore := &velerov1api.Restore{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: velerov1api.DefaultNamespace,
+				Name:      "restore-1",
+			},
+			Spec: velerov1api.RestoreSpec{
+				BackupName:                  "backup-1",
+				SkipDefaultResourceModifier: skip,
+			},
+		}
+		if perRestoreCM != "" {
+			restore.Spec.ResourceModifier = &corev1api.TypedLocalObjectReference{
+				Kind: resourcemodifiers.ConfigmapRefType,
+				Name: perRestoreCM,
+			}
+		}
+		return restore
+	}
+
+	t.Run("default modifier applied when no per-restore modifier", func(t *testing.T) {
+		r := setupReconciler(t, "default-rm")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "default-rm", Namespace: velerov1api.DefaultNamespace},
+			Data:       validCMData,
+		}))
+
+		restore := newRestore("", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.NotNil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("per-restore modifier takes exclusive precedence over default", func(t *testing.T) {
+		// Default ConfigMap does NOT exist, but per-restore does.
+		// If default were applied, it would fail. Per-restore should succeed.
+		r := setupReconciler(t, "nonexistent-default")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "per-restore-rm", Namespace: velerov1api.DefaultNamespace},
+			Data:       validCMData,
+		}))
+
+		restore := newRestore("per-restore-rm", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.NotNil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("skip default modifier when SkipDefaultResourceModifier is true", func(t *testing.T) {
+		r := setupReconciler(t, "default-rm")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "default-rm", Namespace: velerov1api.DefaultNamespace},
+			Data:       validCMData,
+		}))
+
+		skipTrue := true
+		restore := newRestore("", &skipTrue)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("default modifier with invalid data is non-fatal", func(t *testing.T) {
+		r := setupReconciler(t, "invalid-default")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "invalid-default", Namespace: velerov1api.DefaultNamespace},
+			Data: map[string]string{
+				"modifiers.yaml": "not-valid-yaml: [",
+			},
+		}))
+
+		restore := newRestore("", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("default modifier missing is non-fatal", func(t *testing.T) {
+		r := setupReconciler(t, "nonexistent-cm")
+
+		restore := newRestore("", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("per-restore modifier missing is fatal", func(t *testing.T) {
+		r := setupReconciler(t, "")
+
+		restore := newRestore("nonexistent-cm", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.NotEmpty(t, restore.Status.ValidationErrors)
+		assert.Contains(t, restore.Status.ValidationErrors[0], "failed to get resource modifiers configmap")
+	})
+
+	t.Run("no default configured and no per-restore modifier", func(t *testing.T) {
+		r := setupReconciler(t, "")
+
+		restore := newRestore("", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("unsupported resource modifier kind does not apply default", func(t *testing.T) {
+		r := setupReconciler(t, "default-rm")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "default-rm", Namespace: velerov1api.DefaultNamespace},
+			Data:       validCMData,
+		}))
+
+		restore := newRestore("", nil)
+		restore.Spec.ResourceModifier = &corev1api.TypedLocalObjectReference{
+			Kind: "Secret",
+			Name: "some-secret",
+		}
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
+
+	t.Run("default modifier validation failure is non-fatal", func(t *testing.T) {
+		r := setupReconciler(t, "invalid-validation")
+		require.NoError(t, r.kbClient.Create(t.Context(), &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "invalid-validation", Namespace: velerov1api.DefaultNamespace},
+			Data: map[string]string{
+				"modifiers.yaml": "version: v1\nresourceModifierRules:\n- conditions:\n    groupResource: pods\n  patches:\n  - operation: invalid\n    path: \"/spec\"\n    value: \"test\"\n",
+			},
+		}))
+
+		restore := newRestore("", nil)
+		_, rm, _ := r.validateAndComplete(t.Context(), restore)
+		assert.Nil(t, rm)
+		assert.Empty(t, restore.Status.ValidationErrors)
+	})
 }
 
 func TestBackupXorScheduleProvided(t *testing.T) {

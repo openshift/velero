@@ -150,7 +150,7 @@ func (bp *blockProvider) RunBackup(
 		},
 	)
 
-	log.Infof("Block backup finished, snapshot ID %s, backup size %d", snapshotInfo.ID, snapshotInfo.Size)
+	log.Infof("Block backup finished, snapshot ID %s, backup size %v, incremental size %v", snapshotInfo.ID, snapshotInfo.Size, snapshotInfo.IncrementalSize)
 
 	return snapshotInfo.ID, false, snapshotInfo.Size, snapshotInfo.IncrementalSize, nil
 }

@@ -19,12 +19,15 @@ package datamover
 import (
 	"fmt"
 
+	"github.com/vmware-tanzu/velero/pkg/uploader"
 	datamoverutil "github.com/vmware-tanzu/velero/pkg/util/datamover"
 )
 
 func GetUploaderType(dataMover string) string {
-	if datamoverutil.IsBuiltInDataMover(dataMover) {
-		return "kopia"
+	if datamoverutil.IsVeleroFSDataMover(dataMover) {
+		return uploader.KopiaType
+	} else if datamoverutil.IsVeleroBlockDataMover(dataMover) {
+		return uploader.BlockType
 	} else {
 		return dataMover
 	}

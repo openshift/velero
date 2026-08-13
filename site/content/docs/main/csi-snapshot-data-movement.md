@@ -67,7 +67,7 @@ On source cluster, Velero needs to manipulate CSI snapshots through the CSI volu
 
 To integrate Velero with the CSI volume snapshot APIs, you must enable the `EnableCSI` feature flag.
 
-From release-1.14, the `github.com/vmware-tanzu/velero-plugin-for-csi` repository, which is the Velero CSI plugin, is merged into the `github.com/velero-io/velero` repository.
+From release-1.14, the `github.com/velero-io/velero-plugin-for-csi` repository, which is the Velero CSI plugin, is merged into the `github.com/velero-io/velero` repository.
 The reasons to merge the CSI plugin are:
 * The VolumeSnapshot data mover depends on the CSI plugin, it's reasonabe to integrate them.
 * This change reduces the Velero deploying complexity.
@@ -170,6 +170,7 @@ kubectl -n velero get datadownloads -l velero.io/restore-name=YOUR_RESTORE_NAME 
 that anyone who has access to your backup storage can decrypt your backup data**. Make sure that you limit access 
 to the backup storage appropriately. 
 - [Velero built-in data mover] Even though the backup data could be incrementally preserved, for a single file data, Velero built-in data mover leverages on deduplication to find the difference to be saved. This means that large files (such as ones storing a database) will take a long time to scan for data  deduplication, even if the actual difference is small.  
+- [Velero built-in data mover] On volumes where the underlying filesystem enforces mount-constant identity (Azure Files SMB/CIFS, Azure Blob via blobfuse, GCP Cloud Storage FUSE, and similar), data download's `chown`/`chmod` can report success while changing nothing, silently losing file ownership (and on FUSE mounts, permission bits) with no error surfaced anywhere. See [File Ownership and Permission Preservation](file-system-backup.md#file-ownership-and-permission-preservation) for details and remediation.
 
 ## Troubleshooting
 

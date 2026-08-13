@@ -87,7 +87,6 @@ const ObjectStatusRestoreAnnotationKey = "velero.io/restore-status"
 
 var resourceMustHave = []string{
 	"datauploads.velero.io",
-	"volumesnapshotcontents.snapshot.storage.k8s.io",
 }
 
 type VolumeSnapshotterGetter interface {
@@ -638,21 +637,19 @@ func resolveRestoreNamespacedFilterPolicies(
 func resolveResourceFilter(
 	rf resourcepolicies.ResourceFilter,
 ) (*resolvedResourceFilter, error) {
-	var selector labels.Selector
-	if len(rf.LabelSelector) > 0 {
-		var err error
-		selector, err = labels.ValidatedSelectorFromSet(labels.Set(rf.LabelSelector))
-		if err != nil {
-			return nil, fmt.Errorf("invalid label selector in resource filter: %w", err)
-		}
+	selector, err := resourcepolicies.SelectorFromPolicyLabelSelector(rf.LabelSelector)
+	if err != nil {
+		return nil, fmt.Errorf("invalid label selector in resource filter: %w", err)
 	}
 	var orSelectors []labels.Selector
 	for _, ols := range rf.OrLabelSelectors {
-		s, err := labels.ValidatedSelectorFromSet(labels.Set(ols))
+		s, err := resourcepolicies.SelectorFromPolicyLabelSelector(ols)
 		if err != nil {
 			return nil, fmt.Errorf("invalid OR label selector in resource filter: %w", err)
 		}
-		orSelectors = append(orSelectors, s)
+		if s != nil {
+			orSelectors = append(orSelectors, s)
+		}
 	}
 	var nameIE *collections.IncludesExcludes
 	if len(rf.Names) > 0 || len(rf.ExcludedNames) > 0 {
@@ -1014,11 +1011,13 @@ func (ctx *restoreContext) processSelectedResource(
 			if namespace != "" && !existingNamespaces.Has(targetNS) {
 				logger := ctx.log.WithField("namespace", namespace)
 
-				ns := getNamespace(
-					logger,
-					archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", namespace),
-					targetNS,
-				)
+				nsPath, err := archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", namespace)
+				if err != nil {
+					errs.AddVeleroError(err)
+					continue
+				}
+
+				ns := getNamespace(logger, nsPath, targetNS)
 				_, nsCreated, err := kube.EnsureNamespaceExistsAndIsReady(
 					ns,
 					ctx.namespaceClient,
@@ -1062,7 +1061,7 @@ func (ctx *restoreContext) processSelectedResource(
 				continue
 			}
 
-			w, e, _ := ctx.restoreItem(obj, groupResource, targetNS)
+			w, e, _ := ctx.restoreItem(obj, groupResource, targetNS, false)
 			warnings.Merge(&w)
 			errs.Merge(&e)
 			processedItems++
@@ -1388,7 +1387,7 @@ func (ctx *restoreContext) getResource(groupResource schema.GroupResource, obj *
 	return u, nil
 }
 
-func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupResource schema.GroupResource, namespace string) (results.Result, results.Result, bool) {
+func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupResource schema.GroupResource, namespace string, mustInclude bool) (results.Result, results.Result, bool) {
 	warnings, errs := results.Result{}, results.Result{}
 	// itemExists bool is used to determine whether to include this item in the "wait for additional items" list
 	itemExists := false
@@ -1405,31 +1404,51 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	// Check if group/resource should be restored. We need to do this here since
 	// this method may be getting called for an additional item which is a group/resource
 	// that's excluded.
-	if !ctx.resourceIncludesExcludes.ShouldInclude(groupResource.String()) && !ctx.resourceMustHave.Has(groupResource.String()) {
-		restoreLogger.Info("Not restoring item because resource is excluded")
-		return warnings, errs, itemExists
-	}
-
-	// Check if namespace/cluster-scoped resource should be restored. We need
-	// to do this here since this method may be getting called for an additional
-	// item which is in a namespace that's excluded, or which is cluster-scoped
-	// and should be excluded. Note that we're checking the object's namespace (
-	// via obj.GetNamespace()) instead of the namespace parameter, because we want
-	// to check the *original* namespace, not the remapped one if it's been remapped.
 	//
 	// Note: Additional items intentionally bypass fine-grained resource filter policies
 	// (like per-namespace label/name selectors) to avoid breaking semantic dependencies,
-	// but they must still pass the global exclusions enforced below.
-	if namespace != "" {
-		if !ctx.namespaceIncludesExcludes.ShouldInclude(obj.GetNamespace()) && !ctx.resourceMustHave.Has(groupResource.String()) {
-			restoreLogger.Info("Not restoring item because namespace is excluded")
+	// but they must still pass the global exclusions enforced below unless mustInclude is set.
+	if mustInclude {
+		restoreLogger.Info("Skipping the resource/namespace exclusion checks because the item is marked as must-include")
+	} else {
+		if !ctx.resourceIncludesExcludes.ShouldInclude(groupResource.String()) && !ctx.resourceMustHave.Has(groupResource.String()) {
+			restoreLogger.Info("Not restoring item because resource is excluded")
 			return warnings, errs, itemExists
 		}
 
+		// Check if namespace/cluster-scoped resource should be restored. We need
+		// to do this here since this method may be getting called for an additional
+		// item which is in a namespace that's excluded, or which is cluster-scoped
+		// and should be excluded. Note that we're checking the object's namespace (
+		// via obj.GetNamespace()) instead of the namespace parameter, because we want
+		// to check the *original* namespace, not the remapped one if it's been remapped.
+		if namespace != "" {
+			if !ctx.namespaceIncludesExcludes.ShouldInclude(obj.GetNamespace()) && !ctx.resourceMustHave.Has(groupResource.String()) {
+				restoreLogger.Info("Not restoring item because namespace is excluded")
+				return warnings, errs, itemExists
+			}
+		} else {
+			if boolptr.IsSetToFalse(ctx.restore.Spec.IncludeClusterResources) {
+				restoreLogger.Info("Not restoring item because it's cluster-scoped")
+				return warnings, errs, itemExists
+			}
+		}
+	}
+
+	// Namespace creation runs unconditionally when namespace != "", regardless of
+	// mustInclude. This ensures target namespaces exist for additional items that
+	// bypass the namespace-exclusion check above.
+	if namespace != "" {
 		// If the namespace scoped resource should be restored, ensure that the
 		// namespace into which the resource is being restored into exists.
 		// This is the *remapped* namespace that we are ensuring exists.
-		nsToEnsure := getNamespace(restoreLogger, archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", obj.GetNamespace()), namespace)
+		nsPath, err := archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", obj.GetNamespace())
+		if err != nil {
+			errs.AddVeleroError(err)
+			return warnings, errs, itemExists
+		}
+
+		nsToEnsure := getNamespace(restoreLogger, nsPath, namespace)
 		_, nsCreated, err := kube.EnsureNamespaceExistsAndIsReady(nsToEnsure, ctx.namespaceClient, ctx.resourceTerminatingTimeout, ctx.resourceDeletionStatusTracker)
 		if err != nil {
 			errs.AddVeleroError(err)
@@ -1443,11 +1462,6 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 				name:      nsToEnsure.Name,
 			}
 			ctx.restoredItems[itemKey] = restoredItemStatus{action: ItemRestoreResultCreated, itemExists: true, createdName: nsToEnsure.Name}
-		}
-	} else {
-		if boolptr.IsSetToFalse(ctx.restore.Spec.IncludeClusterResources) {
-			restoreLogger.Info("Not restoring item because it's cluster-scoped")
-			return warnings, errs, itemExists
 		}
 	}
 
@@ -1670,9 +1684,34 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 
 		obj = unstructuredObj
 
+		mustIncludeAdditionalItems := false
+		if annotations := obj.GetAnnotations(); annotations != nil {
+			if _, present := annotations[velerov1api.MustIncludeAdditionalItemRestoreAnnotation]; present {
+				// Only the string value "true" enables the bypass.
+				if annotations[velerov1api.MustIncludeAdditionalItemRestoreAnnotation] == "true" {
+					mustIncludeAdditionalItems = true
+					restoreLogger.Info("RestoreItemAction marked additional items as must-include; bypassing resource/namespace exclusion checks for them")
+				}
+				// Always strip the annotation so it never lands on the cluster,
+				// regardless of whether the value enabled the bypass.
+				delete(annotations, velerov1api.MustIncludeAdditionalItemRestoreAnnotation)
+				obj.SetAnnotations(annotations)
+			}
+		}
+
 		var filteredAdditionalItems []velero.ResourceIdentifier
 		for _, additionalItem := range executeOutput.AdditionalItems {
-			itemPath := archive.GetItemFilePath(ctx.restoreDir, additionalItem.GroupResource.String(), additionalItem.Namespace, additionalItem.Name)
+			itemPath, err := archive.GetItemFilePath(ctx.restoreDir, additionalItem.GroupResource.String(), additionalItem.Namespace, additionalItem.Name)
+			if err != nil {
+				restoreLogger.WithError(err).WithFields(logrus.Fields{
+					"additionalResource":          additionalItem.GroupResource.String(),
+					"additionalResourceNamespace": additionalItem.Namespace,
+					"additionalResourceName":      additionalItem.Name,
+				}).Warn("unable to restore additional item")
+				warnings.Add(additionalItem.Namespace, err)
+
+				continue
+			}
 
 			if _, err := ctx.fileSystem.Stat(itemPath); err != nil {
 				restoreLogger.WithError(err).WithFields(logrus.Fields{
@@ -1689,6 +1728,7 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 			additionalObj, err := archive.Unmarshal(ctx.fileSystem, itemPath)
 			if err != nil {
 				errs.Add(namespace, errors.Wrapf(err, "error restoring additional item %s", additionalResourceID))
+				continue
 			}
 
 			additionalItemNamespace := additionalItem.Namespace
@@ -1698,7 +1738,7 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 				}
 			}
 
-			w, e, additionalItemExists := ctx.restoreItem(additionalObj, additionalItem.GroupResource, additionalItemNamespace)
+			w, e, additionalItemExists := ctx.restoreItem(additionalObj, additionalItem.GroupResource, additionalItemNamespace, mustIncludeAdditionalItems)
 			if additionalItemExists {
 				filteredAdditionalItems = append(filteredAdditionalItems, additionalItem)
 			}
@@ -1914,6 +1954,8 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 						e := errors.Errorf("could not restore, %s %q already exists. Warning: the in-cluster version is different than the backed-up version",
 							obj.GetKind(), obj.GetName())
 						warnings.Add(namespace, e)
+						itemStatus.action = ItemRestoreResultSkipped
+						ctx.restoredItems[itemKey] = itemStatus
 						// existingResourcePolicy is set as update, attempt patch on the resource and add warning if it fails
 					} else if resourcePolicy == velerov1api.PolicyTypeUpdate {
 						// processing update as existingResourcePolicy
@@ -1929,6 +1971,8 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 					// Preserved Velero behavior when existingResourcePolicy is not specified by the user
 					e := errors.Errorf("could not restore, %s:%s already exists. Warning: the in-cluster version is different than the backed-up version",
 						obj.GetKind(), obj.GetName())
+					itemStatus.action = ItemRestoreResultSkipped
+					ctx.restoredItems[itemKey] = itemStatus
 					warnings.Add(namespace, e)
 				}
 			}
@@ -2649,9 +2693,9 @@ func (ctx *restoreContext) getSelectedRestoreableItems(resource string, original
 
 				// Peek-and-map logic for unresolvable kinds
 				if rf == nil && len(items) > 0 {
-					peekPath := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, items[0])
-					// Ignore unmarshal errors during peek; the main restore loop will catch and report them
-					if obj, err := archive.Unmarshal(ctx.fileSystem, peekPath); err == nil {
+					peekPath, pathErr := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, items[0])
+					// Ignore path and unmarshal errors during peek; the main restore loop will catch and report them
+					if obj, err := archive.Unmarshal(ctx.fileSystem, peekPath); pathErr == nil && err == nil {
 						actualKind := obj.GroupVersionKind().Kind
 						for _, filter := range nsFilter.resourceFilterMap {
 							for _, k := range filter.originalKinds {
@@ -2692,9 +2736,9 @@ func (ctx *restoreContext) getSelectedRestoreableItems(resource string, original
 				// Note: Unlike the namespaced path, this fallback is always reachable
 				// because the main restore loop does not have a fast-path skip for
 				// unlisted cluster-scoped resources.
-				peekPath := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, items[0])
-				// Ignore unmarshal errors during peek; the main restore loop will catch and report them
-				if obj, err := archive.Unmarshal(ctx.fileSystem, peekPath); err == nil {
+				peekPath, pathErr := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, items[0])
+				// Ignore path and unmarshal errors during peek; the main restore loop will catch and report them
+				if obj, err := archive.Unmarshal(ctx.fileSystem, peekPath); pathErr == nil && err == nil {
 					actualKind := obj.GroupVersionKind().Kind
 					for _, filter := range ctx.clusterScopedFilterMap {
 						for _, k := range filter.originalKinds {
@@ -2720,7 +2764,11 @@ func (ctx *restoreContext) getSelectedRestoreableItems(resource string, original
 	}
 
 	for _, item := range items {
-		itemPath := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, item)
+		itemPath, err := archive.GetItemFilePath(ctx.restoreDir, resourceForPath, originalNamespace, item)
+		if err != nil {
+			errs.Add(targetNamespace, err)
+			continue
+		}
 
 		obj, err := archive.Unmarshal(ctx.fileSystem, itemPath)
 		if err != nil {

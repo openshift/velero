@@ -371,6 +371,7 @@ func TestExecute(t *testing.T) {
 		backup               *velerov1api.Backup
 		restore              *velerov1api.Restore
 		pvc                  *corev1api.PersistentVolumeClaim
+		pvcFromBackup        *corev1api.PersistentVolumeClaim
 		vs                   *snapshotv1api.VolumeSnapshot
 		dataUploadResult     *corev1api.ConfigMap
 		expectedErr          string
@@ -402,15 +403,40 @@ func TestExecute(t *testing.T) {
 			vs: builder.ForVolumeSnapshot("velero", vsName).ObjectMeta(
 				builder.WithAnnotations(velerov1api.VolumeSnapshotRestoreSize, "10Gi"),
 			).Result(),
-			expectedPVC: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotLabel, "vsName")).Result(),
+			expectedPVC: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(
+				velerov1api.VolumeSnapshotLabel, "vsName",
+				velerov1api.MustIncludeAdditionalItemRestoreAnnotation, "true",
+			)).Result(),
 		},
 		{
-			name:        "Restore from VolumeSnapshot without volume-snapshot-name annotation",
-			backup:      builder.ForBackup("velero", "testBackup").Result(),
-			restore:     builder.ForRestore("velero", "testRestore").Backup("testBackup").Result(),
-			pvc:         builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotLabel, "vsName", AnnSelectedNode, "node1")).Result(),
-			vs:          builder.ForVolumeSnapshot("velero", "testVS").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotRestoreSize, "10Gi")).Result(),
-			expectedPVC: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotLabel, "vsName", AnnSelectedNode, "node1")).Result(),
+			name:    "Restore from VolumeSnapshot with nil PVC annotations",
+			backup:  builder.ForBackup("velero", "testBackup").Result(),
+			restore: builder.ForRestore("velero", "testRestore").ObjectMeta(builder.WithUID("restoreUID")).Backup("testBackup").Result(),
+			pvc: &corev1api.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "testPVC",
+					Namespace: "velero",
+				},
+			},
+			pvcFromBackup: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotLabel, "vsName")).Result(),
+			vs: builder.ForVolumeSnapshot("velero", vsName).ObjectMeta(
+				builder.WithAnnotations(velerov1api.VolumeSnapshotRestoreSize, "10Gi"),
+			).Result(),
+			expectedPVC: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(
+				velerov1api.MustIncludeAdditionalItemRestoreAnnotation, "true",
+			)).Result(),
+		},
+		{
+			name:    "Restore from VolumeSnapshot without volume-snapshot-name annotation",
+			backup:  builder.ForBackup("velero", "testBackup").Result(),
+			restore: builder.ForRestore("velero", "testRestore").Backup("testBackup").Result(),
+			pvc:     builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotLabel, "vsName", AnnSelectedNode, "node1")).Result(),
+			vs:      builder.ForVolumeSnapshot("velero", "testVS").ObjectMeta(builder.WithAnnotations(velerov1api.VolumeSnapshotRestoreSize, "10Gi")).Result(),
+			expectedPVC: builder.ForPersistentVolumeClaim("velero", "testPVC").ObjectMeta(builder.WithAnnotations(
+				velerov1api.VolumeSnapshotLabel, "vsName",
+				AnnSelectedNode, "node1",
+				velerov1api.MustIncludeAdditionalItemRestoreAnnotation, "true",
+			)).Result(),
 		},
 		{
 			name:        "DataUploadResult cannot be found",
@@ -480,7 +506,13 @@ func TestExecute(t *testing.T) {
 				require.NoError(t, err)
 
 				input.Item = &unstructured.Unstructured{Object: pvcMap}
-				input.ItemFromBackup = &unstructured.Unstructured{Object: pvcMap}
+				if tc.pvcFromBackup != nil {
+					pvcFromBackupMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(tc.pvcFromBackup)
+					require.NoError(t, err)
+					input.ItemFromBackup = &unstructured.Unstructured{Object: pvcFromBackupMap}
+				} else {
+					input.ItemFromBackup = &unstructured.Unstructured{Object: pvcMap}
+				}
 				input.Restore = tc.restore
 			}
 			if tc.preCreatePVC {
@@ -508,6 +540,12 @@ func TestExecute(t *testing.T) {
 				err := runtime.DefaultUnstructuredConverter.FromUnstructured(output.UpdatedItem.UnstructuredContent(), pvc)
 				require.NoError(t, err)
 				require.Equal(t, tc.expectedPVC.GetObjectMeta(), pvc.GetObjectMeta())
+				if tc.name == "Restore from VolumeSnapshot" {
+					require.Equal(t, "true", pvc.GetAnnotations()[velerov1api.MustIncludeAdditionalItemRestoreAnnotation])
+					require.Len(t, output.AdditionalItems, 1)
+					require.Equal(t, "volumesnapshots.snapshot.storage.k8s.io", output.AdditionalItems[0].GroupResource.String())
+					require.Equal(t, "vsName", output.AdditionalItems[0].Name)
+				}
 				if pvc.Spec.Selector != nil && pvc.Spec.Selector.MatchLabels != nil {
 					// This is used for long name and namespace case.
 					if len(tc.pvc.Namespace+"."+tc.pvc.Name) >= validation.DNS1035LabelMaxLength {

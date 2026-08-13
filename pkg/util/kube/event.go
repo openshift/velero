@@ -31,8 +31,8 @@ import (
 )
 
 type EventRecorder interface {
-	Event(object runtime.Object, warning bool, reason string, message string)
-	EndingEvent(object runtime.Object, warning bool, reason string, message string)
+	Event(object runtime.Object, warning bool, reason string, message string, a ...any)
+	EndingEvent(object runtime.Object, warning bool, reason string, message string, a ...any)
 	Shutdown()
 }
 
@@ -84,7 +84,7 @@ func NewEventRecorder(kubeClient kubernetes.Interface, scheme *runtime.Scheme, e
 	return &res
 }
 
-func (er *eventRecorder) Event(object runtime.Object, warning bool, reason string, message string) {
+func (er *eventRecorder) Event(object runtime.Object, warning bool, reason string, message string, a ...any) {
 	if er.broadcaster == nil {
 		return
 	}
@@ -94,15 +94,19 @@ func (er *eventRecorder) Event(object runtime.Object, warning bool, reason strin
 		eventType = corev1api.EventTypeWarning
 	}
 
-	er.recorder.Event(object, eventType, reason, message)
+	if len(a) > 0 {
+		er.recorder.Eventf(object, eventType, reason, message, a...)
+	} else {
+		er.recorder.Event(object, eventType, reason, message)
+	}
 }
 
-func (er *eventRecorder) EndingEvent(object runtime.Object, warning bool, reason string, message string) {
+func (er *eventRecorder) EndingEvent(object runtime.Object, warning bool, reason string, message string, a ...any) {
 	if er.broadcaster == nil {
 		return
 	}
 
-	er.Event(object, warning, reason, message)
+	er.Event(object, warning, reason, message, a...)
 
 	var sentinelEvent string
 

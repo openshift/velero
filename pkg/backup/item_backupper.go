@@ -351,16 +351,28 @@ func (ib *itemBackupper) backupItemInternal(logger logrus.FieldLogger, obj runti
 	if versionPath == preferredGVR.Version {
 		// backing up preferred version backup without API Group version - for backward compatibility
 		log.Debugf("Resource %s/%s, version= %s, preferredVersion=%s", groupResource.String(), name, versionPath, preferredGVR.Version)
-		itemFiles = append(itemFiles, getFileForArchive(namespace, name, groupResource.String(), "", itemBytes))
+		fileForArchive, err := getFileForArchive(namespace, name, groupResource.String(), "", itemBytes)
+		if err != nil {
+			return false, itemFiles, err
+		}
+		itemFiles = append(itemFiles, fileForArchive)
 		versionPath = versionPath + velerov1api.PreferredVersionDir
 	}
 
-	itemFiles = append(itemFiles, getFileForArchive(namespace, name, groupResource.String(), versionPath, itemBytes))
+	fileForArchive, err := getFileForArchive(namespace, name, groupResource.String(), versionPath, itemBytes)
+	if err != nil {
+		return false, itemFiles, err
+	}
+	itemFiles = append(itemFiles, fileForArchive)
 	return true, itemFiles, nil
 }
 
-func getFileForArchive(namespace, name, groupResource, versionPath string, itemBytes []byte) FileForArchive {
-	filePath := archive.GetVersionedItemFilePath("", groupResource, namespace, name, versionPath)
+func getFileForArchive(namespace, name, groupResource, versionPath string, itemBytes []byte) (FileForArchive, error) {
+	filePath, err := archive.GetVersionedItemFilePath("", groupResource, namespace, name, versionPath)
+	if err != nil {
+		return FileForArchive{}, err
+	}
+
 	hdr := &tar.Header{
 		Name:     filePath,
 		Size:     int64(len(itemBytes)),
@@ -368,7 +380,7 @@ func getFileForArchive(namespace, name, groupResource, versionPath string, itemB
 		Mode:     0755,
 		ModTime:  time.Now(),
 	}
-	return FileForArchive{FilePath: filePath, Header: hdr, FileBytes: itemBytes}
+	return FileForArchive{FilePath: filePath, Header: hdr, FileBytes: itemBytes}, nil
 }
 
 // backupPodVolumes triggers pod volume backups of the specified pod volumes, and returns a list of PodVolumeBackups

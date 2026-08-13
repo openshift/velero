@@ -36,7 +36,7 @@ type DataUploadSpec struct {
 	SourcePVC string `json:"sourcePVC"`
 
 	// DataMover specifies the data mover to be used by the backup.
-	// If DataMover is "" or "velero", the built-in data mover will be used.
+	// If DataMover is "" or "velero", the built-in fs data mover will be used.
 	// +optional
 	DataMover string `json:"datamover,omitempty"`
 
@@ -64,6 +64,12 @@ type DataUploadSpec struct {
 	// SourceFSType is the file system type of the source volume.
 	// +optional
 	SourceFSType string `json:"sourceFSType,omitempty"`
+
+	// ParentSnapshot specifies the parent snapshot that current backup is based on.
+	// If its value is "" or "auto", the data mover finds the recent backup of the same volume as parent.
+	// If its value is "none", the data mover will do a full backup
+	// If its value is a specific snapshotID, the data mover finds the specific snapshot as parent.
+	ParentSnapshot string `json:"parentSnapshot,omitempty"`
 }
 
 type SnapshotType string
@@ -262,4 +268,8 @@ type DataUploadResult struct {
 	// FSType is the file system type of the volume.
 	// +optional
 	FSType string `json:"fsType,omitempty"`
+
+	// SnapshotClass is the name of the snapshot class that the volume snapshot is created with
+	// +optional
+	SnapshotClass string `json:"snapshotClass,omitempty"`
 }

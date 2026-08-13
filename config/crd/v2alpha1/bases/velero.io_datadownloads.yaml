@@ -92,7 +92,7 @@ spec:
               datamover:
                 description: |-
                   DataMover specifies the data mover to be used by the backup.
-                  If DataMover is "" or "velero", the built-in data mover will be used.
+                  If DataMover is "" or "velero", the built-in fs data mover will be used.
                 type: string
               nodeOS:
                 description: NodeOS is OS of the node where the DataDownload is processed.
