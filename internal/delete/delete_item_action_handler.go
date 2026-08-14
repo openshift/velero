@@ -114,7 +114,10 @@ func InvokeDeleteActions(ctx *Context) error {
 
 			// Process individual items from the backup
 			for _, item := range items {
-				itemPath := archive.GetItemFilePath(dir, resource, namespace, item)
+				itemPath, err := archive.GetItemFilePath(dir, resource, namespace, item)
+				if err != nil {
+					return errors.Wrapf(err, "could not build item path: %v", item)
+				}
 
 				// obj is the Unstructured item from the backup
 				obj, err := archive.Unmarshal(ctx.Filesystem, itemPath)

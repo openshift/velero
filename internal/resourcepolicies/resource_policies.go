@@ -21,16 +21,17 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	"github.com/cockroachdb/errors"
 	"github.com/gobwas/glob"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	datamover "github.com/vmware-tanzu/velero/pkg/util/datamover"
+	"github.com/vmware-tanzu/velero/pkg/util/datamover"
 	"github.com/vmware-tanzu/velero/pkg/util/wildcard"
 )
 
@@ -53,11 +54,16 @@ const (
 	// DataMoverParameter is the key of the action parameter that selects the data
 	// mover to be used for the matched volumes when the action type is snapshot.
 	DataMoverParameter = "dataMover"
+
+	// SnapshotClassParameter is the key of the action parameter that selects the
+	// VolumeSnapshotClass to use for CSI snapshots when the action type is snapshot.
+	SnapshotClassParameter = "snapshotClass"
 )
 
 // validDataMovers is the set of data mover values accepted in the snapshot
 // action's dataMover parameter.
 var validDataMovers = map[string]struct{}{
+	datamover.DataMoverTypeEmpty:       {},
 	datamover.DataMoverTypeVelero:      {},
 	datamover.DataMoverTypeVeleroFs:    {},
 	datamover.DataMoverTypeVeleroBlock: {},
@@ -89,24 +95,108 @@ func (a *Action) GetDataMover() (string, error) {
 	if !ok {
 		return datamover.GetDefaultBuiltInDataMover(), nil
 	}
+
 	dataMover, ok := raw.(string)
 	if !ok {
 		return "", fmt.Errorf("parameter %q must be a string, got %T", DataMoverParameter, raw)
 	}
 	if _, ok := validDataMovers[dataMover]; !ok {
-		return "", fmt.Errorf("invalid %q value %q, valid values are %q, %q, %q",
-			DataMoverParameter, dataMover, datamover.DataMoverTypeVelero, datamover.DataMoverTypeVeleroFs, datamover.DataMoverTypeVeleroBlock)
+		return "", fmt.Errorf("invalid %q value %q, valid values are %q, %q, %q, %q",
+			DataMoverParameter, dataMover, datamover.DataMoverTypeEmpty, datamover.DataMoverTypeVelero, datamover.DataMoverTypeVeleroFs, datamover.DataMoverTypeVeleroBlock)
 	}
+
+	// Return default data mover for backup's volume policy, when the data mover's original value is legacy value: "" or "velero".
+	if dataMover == datamover.DataMoverTypeEmpty || dataMover == datamover.DataMoverTypeVelero {
+		dataMover = datamover.GetDefaultBuiltInDataMover()
+	}
+
 	return dataMover, nil
+}
+
+// GetSnapshotClass returns the VolumeSnapshotClass name configured in the
+// snapshot action's snapshotClass parameter. The snapshotClass parameter is
+// only meaningful for the snapshot action, so it returns an error when the
+// action is nil or its type is not snapshot. When the parameter is absent,
+// it returns an empty string, meaning the caller should fall back to the
+// existing VolumeSnapshotClass selection logic.
+func (a *Action) GetSnapshotClass() (string, error) {
+	if a == nil || a.Type != Snapshot {
+		return "", fmt.Errorf("the %q parameter is only supported for the %q action", SnapshotClassParameter, Snapshot)
+	}
+	if len(a.Parameters) == 0 {
+		return "", nil
+	}
+	raw, ok := a.Parameters[SnapshotClassParameter]
+	if !ok {
+		return "", nil
+	}
+	snapshotClass, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("parameter %q must be a string, got %T", SnapshotClassParameter, raw)
+	}
+	return snapshotClass, nil
+}
+
+// PolicyLabelSelector mirrors metav1.LabelSelector with yaml tags for ConfigMap decode.
+// metav1.LabelSelector only has json tags, which do not populate under go.yaml.in/yaml/v3.
+type PolicyLabelSelector struct {
+	MatchLabels      map[string]string                `yaml:"matchLabels,omitempty"`
+	MatchExpressions []PolicyLabelSelectorRequirement `yaml:"matchExpressions,omitempty"`
+}
+
+// PolicyLabelSelectorRequirement mirrors metav1.LabelSelectorRequirement with yaml tags.
+type PolicyLabelSelectorRequirement struct {
+	Key      string   `yaml:"key"`
+	Operator string   `yaml:"operator"`
+	Values   []string `yaml:"values,omitempty"`
+}
+
+// IsPresentLabelSelector reports whether s defines any label constraints.
+// Empty {} (nil MatchLabels and empty MatchExpressions) is treated as absent.
+func IsPresentLabelSelector(s *PolicyLabelSelector) bool {
+	return s != nil && (len(s.MatchLabels) > 0 || len(s.MatchExpressions) > 0)
+}
+
+// ToMetaV1LabelSelector converts the YAML mirror type to metav1.LabelSelector.
+// Conversion itself is infallible; call LabelSelectorAsSelector (or
+// SelectorFromPolicyLabelSelector) to validate operators and values.
+func ToMetaV1LabelSelector(s *PolicyLabelSelector) *metav1.LabelSelector {
+	if s == nil {
+		return nil
+	}
+	ls := &metav1.LabelSelector{MatchLabels: s.MatchLabels}
+	for _, expr := range s.MatchExpressions {
+		ls.MatchExpressions = append(ls.MatchExpressions, metav1.LabelSelectorRequirement{
+			Key:      expr.Key,
+			Operator: metav1.LabelSelectorOperator(expr.Operator),
+			Values:   expr.Values,
+		})
+	}
+	return ls
+}
+
+// SelectorFromPolicyLabelSelector converts a present policy label selector to a
+// runtime labels.Selector. Returns (nil, nil) when s defines no constraints.
+func SelectorFromPolicyLabelSelector(s *PolicyLabelSelector) (labels.Selector, error) {
+	if !IsPresentLabelSelector(s) {
+		return nil, nil
+	}
+	return metav1.LabelSelectorAsSelector(ToMetaV1LabelSelector(s))
+}
+
+// validatePolicyLabelSelector converts and validates a policy label selector.
+func validatePolicyLabelSelector(s *PolicyLabelSelector) error {
+	_, err := SelectorFromPolicyLabelSelector(s)
+	return err
 }
 
 // ResourceFilter defines a filter for specific resource kinds.
 type ResourceFilter struct {
-	Kinds            []string            `yaml:"kinds"`
-	LabelSelector    map[string]string   `yaml:"labelSelector,omitempty"`
-	OrLabelSelectors []map[string]string `yaml:"orLabelSelectors,omitempty"`
-	Names            []string            `yaml:"names,omitempty"`
-	ExcludedNames    []string            `yaml:"excludedNames,omitempty"`
+	Kinds            []string               `yaml:"kinds"`
+	LabelSelector    *PolicyLabelSelector   `yaml:"labelSelector,omitempty"`
+	OrLabelSelectors []*PolicyLabelSelector `yaml:"orLabelSelectors,omitempty"`
+	Names            []string               `yaml:"names,omitempty"`
+	ExcludedNames    []string               `yaml:"excludedNames,omitempty"`
 }
 
 // IsCatchAll returns true if the filter is a catch-all entry (empty kinds or ["*"])
@@ -605,8 +695,16 @@ func (p *Policies) validateNamespacedFilterPolicies() error {
 				seenKinds[kind] = j
 			}
 
-			if len(rf.LabelSelector) > 0 && len(rf.OrLabelSelectors) > 0 {
+			if IsPresentLabelSelector(rf.LabelSelector) && len(rf.OrLabelSelectors) > 0 {
 				return fmt.Errorf("namespacedFilterPolicies[%d].resourceFilters[%d]: labelSelector and orLabelSelectors cannot co-exist", i, j)
+			}
+			if err := validatePolicyLabelSelector(rf.LabelSelector); err != nil {
+				return fmt.Errorf("namespacedFilterPolicies[%d].resourceFilters[%d]: invalid label selector: %w", i, j, err)
+			}
+			for k, ols := range rf.OrLabelSelectors {
+				if err := validatePolicyLabelSelector(ols); err != nil {
+					return fmt.Errorf("namespacedFilterPolicies[%d].resourceFilters[%d].orLabelSelectors[%d]: invalid label selector: %w", i, j, k, err)
+				}
 			}
 
 			// Validate glob patterns for names and excludedNames using gobwas/glob
@@ -657,8 +755,16 @@ func (p *Policies) validateClusterScopedFilterPolicy() error {
 			seenKinds[kind] = j
 		}
 
-		if len(rf.LabelSelector) > 0 && len(rf.OrLabelSelectors) > 0 {
+		if IsPresentLabelSelector(rf.LabelSelector) && len(rf.OrLabelSelectors) > 0 {
 			return fmt.Errorf("clusterScopedFilterPolicy.resourceFilters[%d]: labelSelector and orLabelSelectors cannot co-exist", j)
+		}
+		if err := validatePolicyLabelSelector(rf.LabelSelector); err != nil {
+			return fmt.Errorf("clusterScopedFilterPolicy.resourceFilters[%d]: invalid label selector: %w", j, err)
+		}
+		for k, ols := range rf.OrLabelSelectors {
+			if err := validatePolicyLabelSelector(ols); err != nil {
+				return fmt.Errorf("clusterScopedFilterPolicy.resourceFilters[%d].orLabelSelectors[%d]: invalid label selector: %w", j, k, err)
+			}
 		}
 
 		for k, pattern := range rf.Names {

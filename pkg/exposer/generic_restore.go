@@ -1,5 +1,5 @@
 /*
-Copyright The Velero Contributors.
+Copyright the Velero contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -628,7 +628,9 @@ func (e *genericRestoreExposer) createRestorePod(
 		affinity = &kube.LoadAffinity{}
 	}
 
-	podInfo, err := getInheritedPodInfo(ctx, e.kubeClient, ownerObject.Namespace, nodeOS)
+	// The restore pod writes the data through the restore PVC only, so the node-agent's host
+	// path volumes to the kubelet root directory are not inherited.
+	podInfo, err := getInheritedPodInfo(ctx, e.kubeClient, ownerObject.Namespace, nodeOS, excludeHostPathVolumes)
 	if err != nil {
 		return nil, errors.Wrap(err, "error to get inherited pod info from node-agent")
 	}

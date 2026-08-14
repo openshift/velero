@@ -181,7 +181,7 @@ func (r *RestoreMicroService) RunCancelableDataPath(ctx context.Context) (string
 	}
 	log.Info("fs init")
 
-	if err := dp.StartRestore(dd.Spec.SnapshotID, r.sourceTargetPath, dd.Spec.DataMoverConfig); err != nil {
+	if err := dp.StartRestore(dd.Spec.SnapshotID, r.sourceTargetPath, dd.Spec.DataMoverConfig, &datapath.RestoreStartParam{}); err != nil {
 		return "", errors.Wrap(err, "error starting data path restore")
 	}
 
@@ -235,12 +235,12 @@ func (r *RestoreMicroService) OnDataDownloadCompleted(ctx context.Context, names
 		}
 	}
 
-	log.Info("Async fs restore data path completed")
+	log.Info("Async restore data path completed")
 }
 
 func (r *RestoreMicroService) OnDataDownloadFailed(ctx context.Context, namespace string, ddName string, err error) {
 	log := r.logger.WithField("datadownload", ddName)
-	log.WithError(err).Error("Async fs restore data path failed")
+	log.WithError(err).Error("Async restore data path failed")
 
 	r.eventRecorder.Event(r.dataDownload, false, datapath.EventReasonFailed, fmt.Sprintf("Data path for data download %s failed, error %v", r.dataDownloadName, err))
 	r.resultSignal <- dataPathResult{
@@ -250,7 +250,7 @@ func (r *RestoreMicroService) OnDataDownloadFailed(ctx context.Context, namespac
 
 func (r *RestoreMicroService) OnDataDownloadCancelled(ctx context.Context, namespace string, ddName string) {
 	log := r.logger.WithField("datadownload", ddName)
-	log.Warn("Async fs restore data path canceled")
+	log.Warn("Async restore data path canceled")
 
 	r.eventRecorder.Event(r.dataDownload, false, datapath.EventReasonCancelled, fmt.Sprintf("Data path for data download %s canceled", ddName))
 	r.resultSignal <- dataPathResult{

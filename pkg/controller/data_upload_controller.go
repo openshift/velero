@@ -482,7 +482,7 @@ func (r *DataUploadReconciler) OnDataUploadCompleted(ctx context.Context, namesp
 
 	log := r.logger.WithField("dataupload", duName)
 
-	log.Info("Async fs backup data path completed")
+	log.Info("Async backup data path completed")
 
 	var du velerov2alpha1api.DataUpload
 	if err := r.client.Get(ctx, types.NamespacedName{Name: duName, Namespace: namespace}, &du); err != nil {
@@ -534,7 +534,7 @@ func (r *DataUploadReconciler) OnDataUploadFailed(ctx context.Context, namespace
 
 	log := r.logger.WithField("dataupload", duName)
 
-	log.WithError(err).Error("Async fs backup data path failed")
+	log.WithError(err).Error("Async backup data path failed")
 
 	var du velerov2alpha1api.DataUpload
 	if getErr := r.client.Get(ctx, types.NamespacedName{Name: duName, Namespace: namespace}, &du); getErr != nil {
@@ -549,7 +549,7 @@ func (r *DataUploadReconciler) OnDataUploadCancelled(ctx context.Context, namesp
 
 	log := r.logger.WithField("dataupload", duName)
 
-	log.Warn("Async fs backup data path canceled")
+	log.Warn("Async backup data path canceled")
 
 	du := &velerov2alpha1api.DataUpload{}
 	if getErr := r.client.Get(ctx, types.NamespacedName{Name: duName, Namespace: namespace}, du); getErr != nil {

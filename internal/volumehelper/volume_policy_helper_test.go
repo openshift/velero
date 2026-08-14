@@ -1543,3 +1543,586 @@ func TestVolumeHelperImpl_ShouldPerformFSBackup_UnboundPVC(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDataMoverFromActionParameters(t *testing.T) {
+	testCases := []struct {
+		name             string
+		inputObj         runtime.Object
+		groupResource    schema.GroupResource
+		resourcePolicies *resourcepolicies.ResourcePolicies
+		expected         string
+	}{
+		{
+			name:          "VolumePolicy match with dataMover parameter, returns dataMover string",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+							Parameters: map[string]any{
+								resourcepolicies.DataMoverParameter: "velero-block",
+							},
+						},
+					},
+				},
+			},
+			expected: "velero-block",
+		},
+		{
+			name:          "VolumePolicy match without dataMover parameter, returns default dataMover",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+							Parameters: map[string]any{
+								"otherParam": "value",
+							},
+						},
+					},
+				},
+			},
+			expected: "velero-fs",
+		},
+		{
+			name:          "VolumePolicy match with non-string dataMover parameter, returns empty string",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+							Parameters: map[string]any{
+								resourcepolicies.DataMoverParameter: 123,
+							},
+						},
+					},
+				},
+			},
+			expected: "",
+		},
+		{
+			name:          "VolumePolicy not match, returns empty string",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp3-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+							Parameters: map[string]any{
+								resourcepolicies.DataMoverParameter: "velero",
+							},
+						},
+					},
+				},
+			},
+			expected: "",
+		},
+		{
+			name:          "Error converting unstructured, returns empty string",
+			inputObj:      builder.ForPod("ns", "pod-1").Result(), // wrong type for PersistentVolumes
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+			},
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := velerotest.NewFakeControllerRuntimeClient(t)
+
+			var p *resourcepolicies.Policies
+			if tc.resourcePolicies != nil {
+				p = &resourcepolicies.Policies{}
+				err := p.BuildPolicy(tc.resourcePolicies)
+				require.NoError(t, err)
+			}
+
+			vh := NewVolumeHelperImpl(
+				p,
+				ptr.To(true),
+				logrus.StandardLogger(),
+				fakeClient,
+				false,
+				false,
+			)
+
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(tc.inputObj)
+			require.NoError(t, err)
+
+			actual := vh.GetDataMoverFromActionParameters(&unstructured.Unstructured{Object: obj}, tc.groupResource)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestGetActionParameters(t *testing.T) {
+	testCases := []struct {
+		name             string
+		inputObj         runtime.Object
+		groupResource    schema.GroupResource
+		resourcePolicies *resourcepolicies.ResourcePolicies
+		expectedMatched  bool
+		expectedAction   string
+		expectedParams   map[string]any
+		expectedErr      bool
+	}{
+		{
+			name:          "VolumePolicy match with parameters, returns true, action type, parameters",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Custom,
+							Parameters: map[string]any{
+								"param1": "value1",
+							},
+						},
+					},
+				},
+			},
+			expectedMatched: true,
+			expectedAction:  string(resourcepolicies.Custom),
+			expectedParams: map[string]any{
+				"param1": "value1",
+			},
+			expectedErr: false,
+		},
+		{
+			name:          "VolumePolicy match without parameters, returns true, action type, nil parameters",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+						},
+					},
+				},
+			},
+			expectedMatched: true,
+			expectedAction:  string(resourcepolicies.Snapshot),
+			expectedParams:  nil,
+			expectedErr:     false,
+		},
+		{
+			name:          "VolumePolicy not match, returns false",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp3-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+						},
+					},
+				},
+			},
+			expectedMatched: false,
+			expectedAction:  "",
+			expectedParams:  nil,
+			expectedErr:     false,
+		},
+		{
+			name:          "PVC not having PV, returns false and no error",
+			inputObj:      builder.ForPersistentVolumeClaim("ns", "pvc-1").StorageClass("gp2-csi").Result(),
+			groupResource: kuberesource.PersistentVolumeClaims,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+			},
+			expectedMatched: false,
+			expectedAction:  "",
+			expectedParams:  nil,
+			expectedErr:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := velerotest.NewFakeControllerRuntimeClient(t)
+
+			var p *resourcepolicies.Policies
+			if tc.resourcePolicies != nil {
+				p = &resourcepolicies.Policies{}
+				err := p.BuildPolicy(tc.resourcePolicies)
+				require.NoError(t, err)
+			}
+
+			vh := NewVolumeHelperImpl(
+				p,
+				ptr.To(true),
+				logrus.StandardLogger(),
+				fakeClient,
+				false,
+				false,
+			)
+
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(tc.inputObj)
+			require.NoError(t, err)
+
+			matched, actionType, params, err := vh.GetActionParameters(&unstructured.Unstructured{Object: obj}, tc.groupResource)
+			if tc.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.expectedMatched, matched)
+			assert.Equal(t, tc.expectedAction, actionType)
+			assert.Equal(t, tc.expectedParams, params)
+		})
+	}
+}
+
+func TestShouldPerformCustomAction(t *testing.T) {
+	testCases := []struct {
+		name             string
+		inputObj         runtime.Object
+		groupResource    schema.GroupResource
+		resourcePolicies *resourcepolicies.ResourcePolicies
+		matchParams      map[string]any
+		expected         bool
+		expectedErr      bool
+	}{
+		{
+			name:          "VolumePolicy match, action type is Custom, matchParams match exactly, returns true",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Custom,
+							Parameters: map[string]any{
+								"param1": "value1",
+								"param2": "value2",
+							},
+						},
+					},
+				},
+			},
+			matchParams: map[string]any{
+				"param1": "value1",
+			},
+			expected:    true,
+			expectedErr: false,
+		},
+		{
+			name:          "VolumePolicy match, action type is Custom, matchParams don't match (missing key), returns false",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Custom,
+							Parameters: map[string]any{
+								"param1": "value1",
+							},
+						},
+					},
+				},
+			},
+			matchParams: map[string]any{
+				"param2": "value2",
+			},
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:          "VolumePolicy match, action type is Custom, matchParams don't match (different value), returns false",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Custom,
+							Parameters: map[string]any{
+								"param1": "value1",
+							},
+						},
+					},
+				},
+			},
+			matchParams: map[string]any{
+				"param1": "value2",
+			},
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:          "VolumePolicy match, action type is not Custom, returns false",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp2-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+						},
+					},
+				},
+			},
+			matchParams: map[string]any{
+				"param1": "value1",
+			},
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:          "VolumePolicy not match, returns false",
+			inputObj:      builder.ForPersistentVolume("example-pv").StorageClass("gp3-csi").ClaimRef("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Custom,
+						},
+					},
+				},
+			},
+			matchParams: map[string]any{
+				"param1": "value1",
+			},
+			expected:    false,
+			expectedErr: false,
+		},
+		{
+			name:          "PVC not having PV, returns false and no error",
+			inputObj:      builder.ForPersistentVolumeClaim("ns", "pvc-1").StorageClass("gp2-csi").Result(),
+			groupResource: kuberesource.PersistentVolumeClaims,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+			},
+			matchParams: map[string]any{
+				"param1": "value1",
+			},
+			expected:    false,
+			expectedErr: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := velerotest.NewFakeControllerRuntimeClient(t)
+
+			var p *resourcepolicies.Policies
+			if tc.resourcePolicies != nil {
+				p = &resourcepolicies.Policies{}
+				err := p.BuildPolicy(tc.resourcePolicies)
+				require.NoError(t, err)
+			}
+
+			vh := NewVolumeHelperImpl(
+				p,
+				ptr.To(true),
+				logrus.StandardLogger(),
+				fakeClient,
+				false,
+				false,
+			)
+
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(tc.inputObj)
+			require.NoError(t, err)
+
+			actual, err := vh.ShouldPerformCustomAction(&unstructured.Unstructured{Object: obj}, tc.groupResource, tc.matchParams)
+			if tc.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestGetPVAndMatchAction(t *testing.T) {
+	testCases := []struct {
+		name             string
+		inputObj         runtime.Object
+		groupResource    schema.GroupResource
+		resourcePolicies *resourcepolicies.ResourcePolicies
+		expectedAction   *resourcepolicies.Action
+		expectedPVName   string
+		expectedErr      bool
+		expectedErrStr   string
+	}{
+		{
+			name:          "PVC with matching PV and VolumePolicy, returns action and PV",
+			inputObj:      builder.ForPersistentVolumeClaim("ns", "pvc-1").VolumeName("pv-1").Phase(corev1api.ClaimBound).Result(),
+			groupResource: kuberesource.PersistentVolumeClaims,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+						},
+					},
+				},
+			},
+			expectedAction: &resourcepolicies.Action{
+				Type: resourcepolicies.Snapshot,
+			},
+			expectedPVName: "pv-1",
+			expectedErr:    false,
+		},
+		{
+			name:          "PVC without matching PV, returns errGetPVForPVC",
+			inputObj:      builder.ForPersistentVolumeClaim("ns", "pvc-1").Result(),
+			groupResource: kuberesource.PersistentVolumeClaims,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+			},
+			expectedAction: nil,
+			expectedPVName: "",
+			expectedErr:    true,
+			expectedErrStr: "fail to get PV for PVC ns/pvc-1: fail to get PV for PVC",
+		},
+		{
+			name:          "PV with matching VolumePolicy, returns action and PV",
+			inputObj:      builder.ForPersistentVolume("pv-1").StorageClass("gp2-csi").Result(),
+			groupResource: kuberesource.PersistentVolumes,
+			resourcePolicies: &resourcepolicies.ResourcePolicies{
+				Version: "v1",
+				VolumePolicies: []resourcepolicies.VolumePolicy{
+					{
+						Conditions: map[string]any{
+							"storageClass": []string{"gp2-csi"},
+						},
+						Action: resourcepolicies.Action{
+							Type: resourcepolicies.Snapshot,
+						},
+					},
+				},
+			},
+			expectedAction: &resourcepolicies.Action{
+				Type: resourcepolicies.Snapshot,
+			},
+			expectedPVName: "pv-1",
+			expectedErr:    false,
+		},
+		{
+			name:           "PV without VolumePolicy, returns nil action and PV",
+			inputObj:       builder.ForPersistentVolume("pv-1").Result(),
+			groupResource:  kuberesource.PersistentVolumes,
+			expectedAction: nil,
+			expectedPVName: "pv-1",
+			expectedErr:    false,
+		},
+		{
+			name:           "Invalid object for PVC, returns error",
+			inputObj:       builder.ForPod("ns", "pod-1").Result(),
+			groupResource:  kuberesource.PersistentVolumeClaims,
+			expectedAction: nil,
+			expectedPVName: "",
+			expectedErr:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := builder.ForPersistentVolume("pv-1").StorageClass("gp2-csi").Result()
+			fakeClient := velerotest.NewFakeControllerRuntimeClient(t, pv)
+
+			var p *resourcepolicies.Policies
+			if tc.resourcePolicies != nil {
+				p = &resourcepolicies.Policies{}
+				err := p.BuildPolicy(tc.resourcePolicies)
+				require.NoError(t, err)
+			}
+
+			vh := NewVolumeHelperImpl(
+				p,
+				ptr.To(true),
+				logrus.StandardLogger(),
+				fakeClient,
+				false,
+				false,
+			)
+
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(tc.inputObj)
+			require.NoError(t, err)
+
+			action, outPV, err := vh.(*volumeHelperImpl).getPVAndMatchAction(&unstructured.Unstructured{Object: obj}, tc.groupResource)
+			if tc.expectedErr {
+				require.Error(t, err)
+				if tc.expectedErrStr != "" {
+					assert.Contains(t, err.Error(), tc.expectedErrStr)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedAction, action)
+				if tc.expectedPVName == "" {
+					assert.Nil(t, outPV)
+				} else {
+					require.NotNil(t, outPV)
+					assert.Equal(t, tc.expectedPVName, outPV.Name)
+				}
+			}
+		})
+	}
+}

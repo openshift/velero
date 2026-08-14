@@ -55,6 +55,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/plugin/clientmgmt"
 	"github.com/vmware-tanzu/velero/pkg/plugin/framework"
 	pkgrestore "github.com/vmware-tanzu/velero/pkg/restore"
+	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
@@ -109,10 +110,11 @@ type restoreReconciler struct {
 	defaultItemOperationTimeout time.Duration
 	disableInformerCache        bool
 
-	newPluginManager  func(logger logrus.FieldLogger) clientmgmt.Manager
-	backupStoreGetter persistence.ObjectBackupStoreGetter
-	globalCrClient    client.Client
-	resourceTimeout   time.Duration
+	newPluginManager                 func(logger logrus.FieldLogger) clientmgmt.Manager
+	backupStoreGetter                persistence.ObjectBackupStoreGetter
+	globalCrClient                   client.Client
+	resourceTimeout                  time.Duration
+	defaultResourceModifierConfigMap string
 }
 
 type backupInfo struct {
@@ -135,6 +137,7 @@ func NewRestoreReconciler(
 	disableInformerCache bool,
 	globalCrClient client.Client,
 	resourceTimeout time.Duration,
+	defaultResourceModifierConfigMap string,
 ) *restoreReconciler {
 	r := &restoreReconciler{
 		ctx:                         ctx,
@@ -154,8 +157,9 @@ func NewRestoreReconciler(
 		newPluginManager:  newPluginManager,
 		backupStoreGetter: backupStoreGetter,
 
-		globalCrClient:  globalCrClient,
-		resourceTimeout: resourceTimeout,
+		globalCrClient:                   globalCrClient,
+		resourceTimeout:                  resourceTimeout,
+		defaultResourceModifierConfigMap: defaultResourceModifierConfigMap,
 	}
 
 	// Move the periodical backup and restore metrics computing logic from controllers to here.
@@ -431,25 +435,70 @@ func (r *restoreReconciler) validateAndComplete(ctx context.Context, restore *ap
 	}
 
 	var resourceModifiers *resourcemodifiers.ResourceModifiers
-	if restore.Spec.ResourceModifier != nil && strings.EqualFold(restore.Spec.ResourceModifier.Kind, resourcemodifiers.ConfigmapRefType) {
-		ResourceModifierConfigMap := &corev1api.ConfigMap{}
-		err := r.kbClient.Get(ctx, client.ObjectKey{Namespace: restore.Namespace, Name: restore.Spec.ResourceModifier.Name}, ResourceModifierConfigMap)
-		if err != nil {
-			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("failed to get resource modifiers configmap %s/%s", restore.Namespace, restore.Spec.ResourceModifier.Name))
-			return backupInfo{}, nil, nil
+	if restore.Spec.ResourceModifier != nil {
+		if strings.EqualFold(restore.Spec.ResourceModifier.Kind, resourcemodifiers.ConfigmapRefType) {
+			resourceModifiers = r.loadResourceModifierConfigMap(ctx, restore, restore.Spec.ResourceModifier.Name, false)
+			if resourceModifiers == nil && len(restore.Status.ValidationErrors) > 0 {
+				return backupInfo{}, nil, nil
+			}
+		} else {
+			r.logger.Warnf("Unsupported resource modifier kind %q, only %q is supported", restore.Spec.ResourceModifier.Kind, resourcemodifiers.ConfigmapRefType)
 		}
-		resourceModifiers, err = resourcemodifiers.GetResourceModifiersFromConfig(ResourceModifierConfigMap)
-		if err != nil {
-			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, errors.Wrapf(err, "Error in parsing resource modifiers provided in configmap %s/%s", restore.Namespace, restore.Spec.ResourceModifier.Name).Error())
-			return backupInfo{}, nil, nil
-		} else if err = resourceModifiers.Validate(); err != nil {
-			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, errors.Wrapf(err, "Validation error in resource modifiers provided in configmap %s/%s", restore.Namespace, restore.Spec.ResourceModifier.Name).Error())
-			return backupInfo{}, nil, nil
+	} else if r.defaultResourceModifierConfigMap != "" {
+		if boolptr.IsSetToTrue(restore.Spec.SkipDefaultResourceModifier) {
+			r.logger.Infof("Skipping default resource modifier configmap %s/%s as SkipDefaultResourceModifier is set", restore.Namespace, r.defaultResourceModifierConfigMap)
+		} else {
+			resourceModifiers = r.loadResourceModifierConfigMap(ctx, restore, r.defaultResourceModifierConfigMap, true)
 		}
-		r.logger.Infof("Retrieved Resource modifiers provided in configmap %s/%s", restore.Namespace, restore.Spec.ResourceModifier.Name)
 	}
 
 	return info, resourceModifiers, restoreResPolicies
+}
+
+// loadResourceModifierConfigMap loads and validates a resource modifier ConfigMap.
+// When isDefault is true, errors are non-fatal (logged as warnings, returns nil).
+// When isDefault is false, errors are added to restore.Status.ValidationErrors.
+func (r *restoreReconciler) loadResourceModifierConfigMap(
+	ctx context.Context, restore *api.Restore, cmName string, isDefault bool,
+) *resourcemodifiers.ResourceModifiers {
+	cm := &corev1api.ConfigMap{}
+	if err := r.kbClient.Get(ctx, client.ObjectKey{Namespace: restore.Namespace, Name: cmName}, cm); err != nil {
+		if isDefault {
+			r.logger.WithError(err).Warnf("Failed to retrieve default resource modifier configmap %s/%s, skipping", restore.Namespace, cmName)
+			return nil
+		}
+		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors,
+			fmt.Sprintf("failed to get resource modifiers configmap %s/%s: %v", restore.Namespace, cmName, err))
+		return nil
+	}
+
+	modifiers, err := resourcemodifiers.GetResourceModifiersFromConfig(cm)
+	if err != nil {
+		if isDefault {
+			r.logger.WithError(err).Warnf("Error parsing default resource modifier configmap %s/%s, skipping", restore.Namespace, cmName)
+			return nil
+		}
+		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors,
+			errors.Wrapf(err, "Error in parsing resource modifiers provided in configmap %s/%s", restore.Namespace, cmName).Error())
+		return nil
+	}
+
+	if err = modifiers.Validate(); err != nil {
+		if isDefault {
+			r.logger.WithError(err).Warnf("Validation error in default resource modifier configmap %s/%s, skipping", restore.Namespace, cmName)
+			return nil
+		}
+		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors,
+			errors.Wrapf(err, "Validation error in resource modifiers provided in configmap %s/%s", restore.Namespace, cmName).Error())
+		return nil
+	}
+
+	source := "per-restore"
+	if isDefault {
+		source = "default"
+	}
+	r.logger.Infof("Retrieved %s resource modifiers from configmap %s/%s", source, restore.Namespace, cmName)
+	return modifiers
 }
 
 // backupXorScheduleProvided returns true if exactly one of BackupName and

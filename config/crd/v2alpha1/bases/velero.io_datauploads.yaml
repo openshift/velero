@@ -124,12 +124,19 @@ spec:
               datamover:
                 description: |-
                   DataMover specifies the data mover to be used by the backup.
-                  If DataMover is "" or "velero", the built-in data mover will be used.
+                  If DataMover is "" or "velero", the built-in fs data mover will be used.
                 type: string
               operationTimeout:
                 description: |-
                   OperationTimeout specifies the time used to wait internal operations,
                   before returning error as timeout.
+                type: string
+              parentSnapshot:
+                description: |-
+                  ParentSnapshot specifies the parent snapshot that current backup is based on.
+                  If its value is "" or "auto", the data mover finds the recent backup of the same volume as parent.
+                  If its value is "none", the data mover will do a full backup
+                  If its value is a specific snapshotID, the data mover finds the specific snapshot as parent.
                 type: string
               snapshotType:
                 description: SnapshotType is the type of the snapshot to be backed

@@ -63,10 +63,9 @@ type restorer struct {
 	kubeClient  kubernetes.Interface
 	crClient    ctrlclient.Client
 
-	resultsLock    sync.Mutex
-	results        map[string]chan *velerov1api.PodVolumeRestore
-	nodeAgentCheck chan error
-	log            logrus.FieldLogger
+	resultsLock sync.Mutex
+	results     map[string]chan *velerov1api.PodVolumeRestore
+	log         logrus.FieldLogger
 }
 
 func newRestorer(
@@ -106,9 +105,9 @@ func newRestorer(
 
 				if pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseCompleted || pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseFailed || pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseCanceled {
 					r.resultsLock.Lock()
-					defer r.resultsLock.Unlock()
-
 					resChan, ok := r.results[resultsKey(pvr.Spec.Pod.Namespace, pvr.Spec.Pod.Name)]
+					r.resultsLock.Unlock()
+
 					if !ok {
 						log.Errorf("No results channel found for pod %s/%s to send pod volume restore %s/%s on", pvr.Spec.Pod.Namespace, pvr.Spec.Pod.Name, pvr.Namespace, pvr.Name)
 						return
@@ -147,13 +146,13 @@ func (r *restorer) RestorePodVolumes(data RestoreData, tracker *volume.RestoreVo
 	r.repoLocker.Lock(repo.Name)
 	defer r.repoLocker.Unlock(repo.Name)
 
-	resultsChan := make(chan *velerov1api.PodVolumeRestore)
+	resultsChan := make(chan *velerov1api.PodVolumeRestore, len(volumesToRestore))
 
 	r.resultsLock.Lock()
 	r.results[resultsKey(data.Pod.Namespace, data.Pod.Name)] = resultsChan
 	r.resultsLock.Unlock()
 
-	r.nodeAgentCheck = make(chan error)
+	nodeAgentCheck := make(chan error)
 
 	var (
 		errs        []error
@@ -217,7 +216,7 @@ func (r *restorer) RestorePodVolumes(data RestoreData, tracker *volume.RestoreVo
 			err = nodeagent.IsRunningInNode(checkCtx, data.Restore.Namespace, nodeName, r.crClient)
 			if err != nil {
 				r.log.WithField("node", nodeName).WithError(err).Error("node-agent pod is not running in node, abort the restore")
-				r.nodeAgentCheck <- errors.Wrapf(err, "node-agent pod is not running in node %s", nodeName)
+				nodeAgentCheck <- errors.Wrapf(err, "node-agent pod is not running in node %s", nodeName)
 			}
 		}
 	}()
@@ -235,7 +234,7 @@ ForEachVolume:
 				errs = append(errs, errors.Errorf("pod volume restore canceled: %s", res.Status.Message))
 			}
 			tracker.TrackPodVolume(res)
-		case err := <-r.nodeAgentCheck:
+		case err := <-nodeAgentCheck:
 			errs = append(errs, err)
 			break ForEachVolume
 		}

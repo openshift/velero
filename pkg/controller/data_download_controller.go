@@ -454,7 +454,7 @@ func (r *DataDownloadReconciler) startCancelableDataPath(asyncBR datapath.AsyncB
 
 	if err := asyncBR.StartRestore(dd.Spec.SnapshotID, datapath.AccessPoint{
 		ByPath: res.ByPod.VolumeName,
-	}, dd.Spec.DataMoverConfig); err != nil {
+	}, dd.Spec.DataMoverConfig, nil); err != nil {
 		return errors.Wrapf(err, "error starting async restore for pod %s, volume %s", res.ByPod.HostingPod.Name, res.ByPod.VolumeName)
 	}
 
@@ -466,7 +466,7 @@ func (r *DataDownloadReconciler) OnDataDownloadCompleted(ctx context.Context, na
 	defer r.dataPathMgr.RemoveAsyncBR(ddName)
 
 	log := r.logger.WithField("datadownload", ddName)
-	log.Info("Async fs restore data path completed")
+	log.Info("Async restore data path completed")
 
 	var dd velerov2alpha1api.DataDownload
 	if err := r.client.Get(ctx, types.NamespacedName{Name: ddName, Namespace: namespace}, &dd); err != nil {
@@ -513,7 +513,7 @@ func (r *DataDownloadReconciler) OnDataDownloadFailed(ctx context.Context, names
 
 	log := r.logger.WithField("datadownload", ddName)
 
-	log.WithError(err).Error("Async fs restore data path failed")
+	log.WithError(err).Error("Async restore data path failed")
 
 	var dd velerov2alpha1api.DataDownload
 	if getErr := r.client.Get(ctx, types.NamespacedName{Name: ddName, Namespace: namespace}, &dd); getErr != nil {
@@ -528,7 +528,7 @@ func (r *DataDownloadReconciler) OnDataDownloadCancelled(ctx context.Context, na
 
 	log := r.logger.WithField("datadownload", ddName)
 
-	log.Warn("Async fs backup data path canceled")
+	log.Warn("Async restore data path canceled")
 
 	var dd velerov2alpha1api.DataDownload
 	if getErr := r.client.Get(ctx, types.NamespacedName{Name: ddName, Namespace: namespace}, &dd); getErr != nil {
@@ -693,11 +693,11 @@ func (r *DataDownloadReconciler) findSnapshotRestoreForPod(ctx context.Context, 
 				r.prepareDataDownload(dd)
 				return true
 			}); err != nil {
-			log.WithError(err).Warn("failed to update dataudownload, prepare will halt for this dataudownload")
+			log.WithError(err).Warn("failed to update datadownload, prepare will halt for this datadownload")
 			return []reconcile.Request{}
 		}
 	} else if unrecoverable, reason := kube.IsPodUnrecoverable(pod, log); unrecoverable {
-		err := UpdateDataDownloadWithRetry(context.Background(), r.client, types.NamespacedName{Namespace: dd.Namespace, Name: dd.Name}, r.logger.WithField("datadownlad", dd.Name),
+		err := UpdateDataDownloadWithRetry(context.Background(), r.client, types.NamespacedName{Namespace: dd.Namespace, Name: dd.Name}, r.logger.WithField("datadownload", dd.Name),
 			func(dataDownload *velerov2alpha1api.DataDownload) bool {
 				if dataDownload.Spec.Cancel {
 					return false
@@ -1096,7 +1096,7 @@ func (r *DataDownloadReconciler) resumeCancellableDataPath(ctx context.Context, 
 
 	if err := asyncBR.StartRestore(dd.Spec.SnapshotID, datapath.AccessPoint{
 		ByPath: res.ByPod.VolumeName,
-	}, nil); err != nil {
+	}, nil, nil); err != nil {
 		return errors.Wrapf(err, "error to resume asyncBR watcher for dd %s", dd.Name)
 	}
 
