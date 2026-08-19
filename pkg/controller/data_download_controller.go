@@ -131,6 +131,7 @@ func NewDataDownloadReconciler(
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get
 // +kubebuilder:rbac:groups="",resources=persistentvolumerclaims,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;create;delete
 
 func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.logger.WithFields(logrus.Fields{
