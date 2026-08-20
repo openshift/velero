@@ -1989,3 +1989,186 @@ end diagnose CSI exposer`,
 		})
 	}
 }
+
+func TestExpose_SecretCopy(t *testing.T) {
+	backup := &velerov1.Backup{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: velerov1.SchemeGroupVersion.String(),
+			Kind:       "Backup",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1.DefaultNamespace,
+			Name:      "fake-backup",
+			UID:       "fake-uid",
+		},
+	}
+
+	ownerObject := corev1api.ObjectReference{
+		Kind:       backup.Kind,
+		Namespace:  backup.Namespace,
+		Name:       backup.Name,
+		UID:        backup.UID,
+		APIVersion: backup.APIVersion,
+	}
+
+	// The secret/configmap copy runs after GetVolumeTopology and WaitVolumeSnapshotReady,
+	// so a StorageClass and a ready VolumeSnapshot are needed to reach the copy block.
+	scObj := &storagev1api.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "encrypted-sc"},
+	}
+	readyVS := func() *snapshotv1api.VolumeSnapshot {
+		vscName := "fake-vsc"
+		return &snapshotv1api.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{Name: "fake-vs", Namespace: "app-ns"},
+			Spec: snapshotv1api.VolumeSnapshotSpec{
+				Source: snapshotv1api.VolumeSnapshotSource{VolumeSnapshotContentName: &vscName},
+			},
+			Status: &snapshotv1api.VolumeSnapshotStatus{
+				BoundVolumeSnapshotContentName: &vscName,
+				ReadyToUse:                     boolptr.True(),
+				RestoreSize:                    resource.NewQuantity(1234, ""),
+			},
+		}
+	}
+
+	param := func() *CSISnapshotExposeParam {
+		return &CSISnapshotExposeParam{
+			SourceNamespace:  "app-ns",
+			SourcePVName:     "fake-pv",
+			SnapshotName:     "fake-vs",
+			StorageClass:     "encrypted-sc",
+			OperationTimeout: time.Millisecond,
+			ExposeTimeout:    time.Second,
+		}
+	}
+
+	t.Run("copies secret from source namespace", func(t *testing.T) {
+		srcSecret := &corev1api.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "kms-token", Namespace: "app-ns"},
+			Data:       map[string][]byte{"token": []byte("vault-token")},
+			Type:       corev1api.SecretTypeOpaque,
+		}
+		fakeKubeClient := fake.NewSimpleClientset(srcSecret, scObj)
+		fakeSnapshotClient := snapshotFake.NewSimpleClientset(readyVS())
+
+		exposer := csiSnapshotExposer{
+			kubeClient:        fakeKubeClient,
+			csiSnapshotClient: fakeSnapshotClient.SnapshotV1(),
+			log:               velerotest.NewLogger(),
+		}
+
+		p := param()
+		p.BackupPVCConfig = map[string]velerotypes.BackupPVC{
+			"encrypted-sc": {SecretNames: []string{"kms-token"}},
+		}
+
+		// Expose will fail later (no VSC exists), but the secret copy should succeed
+		_ = exposer.Expose(t.Context(), ownerObject, p)
+
+		copied, err := fakeKubeClient.CoreV1().Secrets(ownerObject.Namespace).Get(
+			t.Context(), "kms-token", metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, []byte("vault-token"), copied.Data["token"])
+		assert.Equal(t, string(ownerObject.UID), copied.Labels[BackupPVCSecretLabel])
+	})
+
+	t.Run("copies configmap from source namespace", func(t *testing.T) {
+		srcCM := &corev1api.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "kms-config", Namespace: "app-ns"},
+			Data:       map[string]string{"vaultAddress": "https://vault.example.com"},
+		}
+		fakeKubeClient := fake.NewSimpleClientset(srcCM, scObj)
+		fakeSnapshotClient := snapshotFake.NewSimpleClientset(readyVS())
+
+		exposer := csiSnapshotExposer{
+			kubeClient:        fakeKubeClient,
+			csiSnapshotClient: fakeSnapshotClient.SnapshotV1(),
+			log:               velerotest.NewLogger(),
+		}
+
+		p := param()
+		p.BackupPVCConfig = map[string]velerotypes.BackupPVC{
+			"encrypted-sc": {ConfigMapNames: []string{"kms-config"}},
+		}
+
+		_ = exposer.Expose(t.Context(), ownerObject, p)
+
+		copied, err := fakeKubeClient.CoreV1().ConfigMaps(ownerObject.Namespace).Get(
+			t.Context(), "kms-config", metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, "https://vault.example.com", copied.Data["vaultAddress"])
+		assert.Equal(t, string(ownerObject.UID), copied.Labels[BackupPVCSecretLabel])
+	})
+
+	t.Run("returns error when source secret missing", func(t *testing.T) {
+		fakeKubeClient := fake.NewSimpleClientset(scObj)
+		fakeSnapshotClient := snapshotFake.NewSimpleClientset(readyVS())
+
+		exposer := csiSnapshotExposer{
+			kubeClient:        fakeKubeClient,
+			csiSnapshotClient: fakeSnapshotClient.SnapshotV1(),
+			log:               velerotest.NewLogger(),
+		}
+
+		p := param()
+		p.BackupPVCConfig = map[string]velerotypes.BackupPVC{
+			"encrypted-sc": {SecretNames: []string{"missing-secret"}},
+		}
+
+		err := exposer.Expose(t.Context(), ownerObject, p)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "error copying secret")
+	})
+}
+
+func TestCleanUp_SecretsAndConfigMaps(t *testing.T) {
+	ownerObject := corev1api.ObjectReference{
+		Kind:       "Backup",
+		Namespace:  "velero",
+		Name:       "du-123",
+		UID:        "fake-uid",
+		APIVersion: "v1",
+	}
+
+	secret := &corev1api.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kms-token", Namespace: "velero",
+			Labels: map[string]string{BackupPVCSecretLabel: string(ownerObject.UID)},
+			UID:    "secret-uid",
+		},
+	}
+	cm := &corev1api.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kms-config", Namespace: "velero",
+			Labels: map[string]string{BackupPVCSecretLabel: string(ownerObject.UID)},
+			UID:    "cm-uid",
+		},
+	}
+	unrelatedSecret := &corev1api.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "other-secret", Namespace: "velero",
+			Labels: map[string]string{BackupPVCSecretLabel: "other-owner-uid"},
+			UID:    "other-uid",
+		},
+	}
+
+	fakeKubeClient := fake.NewSimpleClientset(secret, cm, unrelatedSecret)
+	fakeSnapshotClient := snapshotFake.NewSimpleClientset()
+
+	exposer := csiSnapshotExposer{
+		kubeClient:        fakeKubeClient,
+		csiSnapshotClient: fakeSnapshotClient.SnapshotV1(),
+		log:               velerotest.NewLogger(),
+	}
+
+	exposer.CleanUp(t.Context(), ownerObject, "", "app-ns")
+
+	_, err := fakeKubeClient.CoreV1().Secrets("velero").Get(t.Context(), "kms-token", metav1.GetOptions{})
+	require.Error(t, err, "owned secret should be deleted")
+
+	_, err = fakeKubeClient.CoreV1().ConfigMaps("velero").Get(t.Context(), "kms-config", metav1.GetOptions{})
+	require.Error(t, err, "owned configmap should be deleted")
+
+	_, err = fakeKubeClient.CoreV1().Secrets("velero").Get(t.Context(), "other-secret", metav1.GetOptions{})
+	assert.NoError(t, err, "unrelated secret should not be deleted")
+}
