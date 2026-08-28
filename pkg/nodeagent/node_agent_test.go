@@ -17,6 +17,7 @@ limitations under the License.
 package nodeagent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cockroachdb/errors"
@@ -28,7 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	clientTesting "k8s.io/client-go/testing"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/vmware-tanzu/velero/pkg/builder"
 	velerotypes "github.com/vmware-tanzu/velero/pkg/types"
@@ -208,6 +211,152 @@ func TestIsRunningInNode(t *testing.T) {
 				assert.NoError(t, err)
 			} else {
 				assert.EqualError(t, err, test.expectErr)
+			}
+		})
+	}
+}
+
+func TestIsReady(t *testing.T) {
+	scheme := runtime.NewScheme()
+	appsv1api.AddToScheme(scheme)
+
+	dsLinuxNotReady := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "fake-ns", Name: "node-agent"},
+		Status:     appsv1api.DaemonSetStatus{NumberReady: 0},
+	}
+	dsLinuxReady := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "fake-ns", Name: "node-agent"},
+		Status:     appsv1api.DaemonSetStatus{NumberReady: 3},
+	}
+	dsWindowsNotReady := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "fake-ns", Name: "node-agent-windows"},
+		Status:     appsv1api.DaemonSetStatus{NumberReady: 0},
+	}
+	dsWindowsReady := &appsv1api.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "fake-ns", Name: "node-agent-windows"},
+		Status:     appsv1api.DaemonSetStatus{NumberReady: 2},
+	}
+
+	tests := []struct {
+		name          string
+		kubeClientObj []runtime.Object
+		namespace     string
+		interceptor   *interceptor.Funcs
+		expectErr     string
+	}{
+		{
+			name:      "both daemonsets not found",
+			namespace: "fake-ns",
+			expectErr: "node-agent is not ready: no ready pods found",
+		},
+		{
+			name:      "linux daemonset get error",
+			namespace: "fake-ns",
+			interceptor: &interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+					if key.Name == "node-agent" {
+						return errors.New("fake-get-error")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			expectErr: "failed to get linux node-agent daemonset: fake-get-error",
+		},
+		{
+			name:      "windows daemonset get error",
+			namespace: "fake-ns",
+			interceptor: &interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+					if key.Name == "node-agent-windows" {
+						return errors.New("fake-get-error")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			expectErr: "failed to get windows node-agent daemonset: fake-get-error",
+		},
+		{
+			name:      "linux ds exist but no ready pods",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxNotReady,
+			},
+			expectErr: "node-agent is not ready: no ready pods found",
+		},
+		{
+			name:      "linux ds with ready pods",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxReady,
+			},
+		},
+		{
+			name:      "windows ds exist but no ready pods",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsWindowsNotReady,
+			},
+			expectErr: "node-agent is not ready: no ready pods found",
+		},
+		{
+			name:      "windows ds with ready pods",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsWindowsReady,
+			},
+		},
+		{
+			name:      "both daemonsets exist but no ready pods",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxNotReady,
+				dsWindowsNotReady,
+			},
+			expectErr: "node-agent is not ready: no ready pods found",
+		},
+		{
+			name:      "both daemonsets exist, linux ready",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxReady,
+				dsWindowsNotReady,
+			},
+		},
+		{
+			name:      "both daemonsets exist, windows ready",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxNotReady,
+				dsWindowsReady,
+			},
+		},
+		{
+			name:      "both daemonsets exist, both ready",
+			namespace: "fake-ns",
+			kubeClientObj: []runtime.Object{
+				dsLinuxReady,
+				dsWindowsReady,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			builder := clientFake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(test.kubeClientObj...)
+
+			if test.interceptor != nil {
+				builder = builder.WithInterceptorFuncs(*test.interceptor)
+			}
+
+			fakeClient := builder.Build()
+
+			err := IsReady(t.Context(), test.namespace, fakeClient)
+			if test.expectErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, test.expectErr)
 			}
 		})
 	}
