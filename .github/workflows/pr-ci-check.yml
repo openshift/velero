@@ -2,11 +2,13 @@ name: Pull Request CI Check
 on: [pull_request]
 jobs:
   get-go-version:
+    if: github.repository == 'velero-io/velero' && github.base_ref == 'main'
     uses: ./.github/workflows/get-go-version.yaml
     with:
       ref: ${{ github.event.pull_request.base.ref }}
 
   build:
+    if: github.repository == 'velero-io/velero' && github.base_ref == 'main'
     name: Run CI
     needs: get-go-version
     runs-on: ubuntu-latest
