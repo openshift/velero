@@ -252,6 +252,294 @@ func TestGetRepositoryMaintenanceFrequency(t *testing.T) {
 	}
 }
 
+func TestInvalidateBackupReposForBSL(t *testing.T) {
+	tests := []struct {
+		name          string
+		bsl           *velerov1api.BackupStorageLocation
+		repos         []*velerov1api.BackupRepository
+		expectNotReady int
+	}{
+		{
+			name: "invalidates repos matching BSL label",
+			bsl: &velerov1api.BackupStorageLocation{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: velerov1api.DefaultNamespace,
+					Name:      "bsl-1",
+				},
+			},
+			repos: []*velerov1api.BackupRepository{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: velerov1api.DefaultNamespace,
+						Name:      "repo-1",
+						Labels: map[string]string{
+							velerov1api.StorageLocationLabel: "bsl-1",
+						},
+					},
+					Spec: velerov1api.BackupRepositorySpec{
+						MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+						BackupStorageLocation: "bsl-1",
+					},
+					Status: velerov1api.BackupRepositoryStatus{
+						Phase: velerov1api.BackupRepositoryPhaseReady,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: velerov1api.DefaultNamespace,
+						Name:      "repo-2",
+						Labels: map[string]string{
+							velerov1api.StorageLocationLabel: "bsl-1",
+						},
+					},
+					Spec: velerov1api.BackupRepositorySpec{
+						MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+						BackupStorageLocation: "bsl-1",
+					},
+					Status: velerov1api.BackupRepositoryStatus{
+						Phase: velerov1api.BackupRepositoryPhaseReady,
+					},
+				},
+			},
+			expectNotReady: 2,
+		},
+		{
+			name: "does not invalidate repos for different BSL",
+			bsl: &velerov1api.BackupStorageLocation{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: velerov1api.DefaultNamespace,
+					Name:      "bsl-1",
+				},
+			},
+			repos: []*velerov1api.BackupRepository{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: velerov1api.DefaultNamespace,
+						Name:      "repo-other",
+						Labels: map[string]string{
+							velerov1api.StorageLocationLabel: "bsl-other",
+						},
+					},
+					Spec: velerov1api.BackupRepositorySpec{
+						MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+						BackupStorageLocation: "bsl-other",
+					},
+					Status: velerov1api.BackupRepositoryStatus{
+						Phase: velerov1api.BackupRepositoryPhaseReady,
+					},
+				},
+			},
+			expectNotReady: 0,
+		},
+		{
+			name: "no repos to invalidate",
+			bsl: &velerov1api.BackupStorageLocation{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: velerov1api.DefaultNamespace,
+					Name:      "bsl-1",
+				},
+			},
+			repos:          nil,
+			expectNotReady: 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reconciler := NewBackupRepoReconciler(
+				velerov1api.DefaultNamespace,
+				velerotest.NewLogger(),
+				velerotest.NewFakeControllerRuntimeClient(t),
+				time.Duration(0), nil)
+
+			for _, repo := range test.repos {
+				assert.NoError(t, reconciler.Client.Create(context.TODO(), repo))
+			}
+
+			requests := reconciler.invalidateBackupReposForBSL(context.TODO(), test.bsl)
+			assert.NotNil(t, requests)
+
+			notReadyCount := 0
+			for _, repo := range test.repos {
+				updated := &velerov1api.BackupRepository{}
+				err := reconciler.Client.Get(context.TODO(), types.NamespacedName{
+					Namespace: repo.Namespace,
+					Name:      repo.Name,
+				}, updated)
+				assert.NoError(t, err)
+				if updated.Status.Phase == velerov1api.BackupRepositoryPhaseNotReady {
+					assert.Equal(t, "re-establish on BSL change or create", updated.Status.Message)
+					notReadyCount++
+				}
+			}
+			assert.Equal(t, test.expectNotReady, notReadyCount)
+		})
+	}
+}
+
+// TestCheckNotReadyRepoUpdatesIdentifierOnPrefixChange verifies that when BSL prefix
+// changes from "velero" to "velero-new" and BackupRepository is NotReady,
+// checkNotReadyRepo updates the ResticIdentifier to reflect the new prefix.
+func TestCheckNotReadyRepoUpdatesIdentifierOnPrefixChange(t *testing.T) {
+	rr := mockBackupRepositoryCR()
+	rr.Spec.BackupStorageLocation = "default"
+	rr.Spec.ResticIdentifier = "s3:test.amazonaws.com/bucket/velero/restic/volume-ns-1"
+	rr.Spec.VolumeNamespace = "volume-ns-1"
+	rr.Status.Phase = velerov1api.BackupRepositoryPhaseNotReady
+	reconciler := mockBackupRepoReconciler(t, rr, "PrepareRepo", rr, nil)
+	err := reconciler.Client.Create(context.TODO(), rr)
+	assert.NoError(t, err)
+
+	// BSL now has a different prefix than what the repo was initialized with
+	bsl := &velerov1api.BackupStorageLocation{
+		Spec: velerov1api.BackupStorageLocationSpec{
+			Config: map[string]string{"resticRepoPrefix": "s3:test.amazonaws.com/bucket/velero-new/restic"},
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1api.DefaultNamespace,
+			Name:      "default",
+		},
+	}
+	err = reconciler.Client.Create(context.TODO(), bsl)
+	assert.NoError(t, err)
+
+	ready, err := reconciler.checkNotReadyRepo(context.TODO(), rr, reconciler.logger)
+	assert.NoError(t, err)
+	assert.True(t, ready)
+	assert.Equal(t, velerov1api.BackupRepositoryPhaseReady, rr.Status.Phase)
+	assert.Equal(t, "s3:test.amazonaws.com/bucket/velero-new/restic/volume-ns-1", rr.Spec.ResticIdentifier)
+}
+
+// TestCheckNotReadyRepoKopiaUpdatesIdentifierOnPrefixChange verifies that kopia
+// repositories also get their ResticIdentifier updated when BSL prefix changes.
+// On oadp-1.4, checkNotReadyRepo does not have a restic-only guard, so this should work.
+func TestCheckNotReadyRepoKopiaUpdatesIdentifierOnPrefixChange(t *testing.T) {
+	rr := mockBackupRepositoryCR()
+	rr.Spec.BackupStorageLocation = "default"
+	rr.Spec.RepositoryType = "kopia"
+	rr.Spec.ResticIdentifier = "s3:test.amazonaws.com/bucket/velero/restic/volume-ns-1"
+	rr.Spec.VolumeNamespace = "volume-ns-1"
+	rr.Status.Phase = velerov1api.BackupRepositoryPhaseNotReady
+	reconciler := mockBackupRepoReconciler(t, rr, "PrepareRepo", rr, nil)
+	err := reconciler.Client.Create(context.TODO(), rr)
+	assert.NoError(t, err)
+
+	bsl := &velerov1api.BackupStorageLocation{
+		Spec: velerov1api.BackupStorageLocationSpec{
+			Config: map[string]string{"resticRepoPrefix": "s3:test.amazonaws.com/bucket/velero-new/restic"},
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1api.DefaultNamespace,
+			Name:      "default",
+		},
+	}
+	err = reconciler.Client.Create(context.TODO(), bsl)
+	assert.NoError(t, err)
+
+	ready, err := reconciler.checkNotReadyRepo(context.TODO(), rr, reconciler.logger)
+	assert.NoError(t, err)
+	assert.True(t, ready)
+	assert.Equal(t, velerov1api.BackupRepositoryPhaseReady, rr.Status.Phase)
+	assert.Equal(t, "s3:test.amazonaws.com/bucket/velero-new/restic/volume-ns-1", rr.Spec.ResticIdentifier)
+}
+
+// TestBSLDeleteRecreateWithNewPrefix simulates the full BSL delete/recreate scenario (#8279):
+// 1. BSL exists with prefix "velero", BackupRepository is Ready
+// 2. BSL is deleted -> checkNotReadyRepo patches repo to NotReady (BSL not found)
+// 3. BSL is recreated with prefix "velero-new" -> invalidateBackupReposForBSL fires
+// 4. Reconcile runs again -> checkNotReadyRepo updates ResticIdentifier
+func TestBSLDeleteRecreateWithNewPrefix(t *testing.T) {
+	bslName := "ts-dpa-1"
+	rr := &velerov1api.BackupRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1api.DefaultNamespace,
+			Name:      "test-prefix-repo",
+			Labels: map[string]string{
+				velerov1api.StorageLocationLabel: bslName,
+			},
+		},
+		Spec: velerov1api.BackupRepositorySpec{
+			MaintenanceFrequency:  metav1.Duration{Duration: testMaintenanceFrequency},
+			BackupStorageLocation: bslName,
+			ResticIdentifier:      "s3:test.amazonaws.com/bucket/velero/restic/volume-ns-1",
+			VolumeNamespace:       "volume-ns-1",
+		},
+		Status: velerov1api.BackupRepositoryStatus{
+			Phase: velerov1api.BackupRepositoryPhaseReady,
+		},
+	}
+	mgr := &repomokes.Manager{}
+	mgr.On("PrepareRepo", mock.Anything).Return(nil)
+	reconciler := NewBackupRepoReconciler(
+		velerov1api.DefaultNamespace,
+		velerotest.NewLogger(),
+		velerotest.NewFakeControllerRuntimeClient(t),
+		testMaintenanceFrequency,
+		mgr,
+	)
+	err := reconciler.Client.Create(context.TODO(), rr)
+	assert.NoError(t, err)
+
+	// Step 1: BSL exists with old prefix
+	oldBSL := &velerov1api.BackupStorageLocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1api.DefaultNamespace,
+			Name:      bslName,
+		},
+		Spec: velerov1api.BackupStorageLocationSpec{
+			Config: map[string]string{"resticRepoPrefix": "s3:test.amazonaws.com/bucket/velero/restic"},
+		},
+	}
+	err = reconciler.Client.Create(context.TODO(), oldBSL)
+	assert.NoError(t, err)
+
+	// Step 2: BSL is deleted (simulates DPA deletion)
+	err = reconciler.Client.Delete(context.TODO(), oldBSL)
+	assert.NoError(t, err)
+
+	// Repo reconciliation while BSL is gone - getIdentiferByBSL fails,
+	// checkNotReadyRepo patches repo to NotReady and returns (false, nil)
+	ready, err := reconciler.checkNotReadyRepo(context.TODO(), rr, reconciler.logger)
+	assert.NoError(t, err)
+	assert.False(t, ready)
+	assert.Equal(t, velerov1api.BackupRepositoryPhaseNotReady, rr.Status.Phase)
+	// The stale ResticIdentifier is unchanged since BSL was not found
+	assert.Equal(t, "s3:test.amazonaws.com/bucket/velero/restic/volume-ns-1", rr.Spec.ResticIdentifier)
+
+	// Step 3: BSL recreated with new prefix (simulates DPA recreation)
+	newBSL := &velerov1api.BackupStorageLocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: velerov1api.DefaultNamespace,
+			Name:      bslName,
+		},
+		Spec: velerov1api.BackupStorageLocationSpec{
+			Config: map[string]string{"resticRepoPrefix": "s3:test.amazonaws.com/bucket/velero-new/restic"},
+		},
+	}
+	err = reconciler.Client.Create(context.TODO(), newBSL)
+	assert.NoError(t, err)
+
+	// BSL create event triggers invalidateBackupReposForBSL (PR #7380)
+	requests := reconciler.invalidateBackupReposForBSL(context.TODO(), newBSL)
+	assert.NotNil(t, requests)
+
+	// Verify repo was marked NotReady with BSL change message
+	updated := &velerov1api.BackupRepository{}
+	err = reconciler.Client.Get(context.TODO(), types.NamespacedName{
+		Namespace: rr.Namespace,
+		Name:      rr.Name,
+	}, updated)
+	assert.NoError(t, err)
+	assert.Equal(t, velerov1api.BackupRepositoryPhaseNotReady, updated.Status.Phase)
+	assert.Equal(t, "re-establish on BSL change or create", updated.Status.Message)
+
+	// Step 4: Reconcile runs - checkNotReadyRepo should update identifier to new prefix
+	ready, err = reconciler.checkNotReadyRepo(context.TODO(), updated, reconciler.logger)
+	assert.NoError(t, err)
+	assert.True(t, ready)
+	assert.Equal(t, velerov1api.BackupRepositoryPhaseReady, updated.Status.Phase)
+	assert.Equal(t, "s3:test.amazonaws.com/bucket/velero-new/restic/volume-ns-1", updated.Spec.ResticIdentifier)
+}
+
 func TestNeedInvalidBackupRepo(t *testing.T) {
 	tests := []struct {
 		name   string

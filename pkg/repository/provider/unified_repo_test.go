@@ -1232,7 +1232,7 @@ func TestBoostRepoConnect(t *testing.T) {
 			retFuncInit: func(context.Context, udmrepo.RepoOptions, bool) error {
 				return errors.New("fake-error-2")
 			},
-			expectedErr: "error to connect backup repo: fake-error-2",
+			expectedErr: "error to connect to backup repo: fake-error-2",
 		},
 		{
 			name:            "repo not opened and connect succeed",
@@ -1330,6 +1330,65 @@ func TestBoostRepoConnect(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBoostRepoConnectInitializesWhenRepoNotFound tests that when the kopia repository
+// doesn't exist at the target storage location (e.g., after BSL prefix change),
+// BoostRepoConnect initializes a new repo via PrepareRepo instead of failing with
+// "error to connect backup repo". See https://github.com/vmware-tanzu/velero/issues/8279
+func TestBoostRepoConnectInitializesWhenRepoNotFound(t *testing.T) {
+	var backupRepo *reposervicenmocks.BackupRepo
+
+	getter := new(credmock.SecretStore)
+	getter.On("Get", mock.Anything, mock.Anything).Return("fake-password", nil)
+
+	repoService := new(reposervicenmocks.BackupRepoService)
+
+	repoService.On("Open", mock.Anything, mock.Anything).Return(
+		func(context.Context, udmrepo.RepoOptions) udmrepo.BackupRepo {
+			return backupRepo
+		},
+		func(context.Context, udmrepo.RepoOptions) error {
+			return errors.New("config file not found")
+		},
+	)
+
+	// Init with createNew=false returns ErrRepositoryNotInitialized (repo doesn't exist at new prefix)
+	// Init with createNew=true should succeed (initialize new repo)
+	repoService.On("Init", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(ctx context.Context, repoOption udmrepo.RepoOptions, createNew bool) error {
+			if !createNew {
+				return repo.ErrRepositoryNotInitialized
+			}
+			return nil
+		},
+	)
+
+	funcTable = localFuncTable{
+		getStorageVariables: func(*velerov1api.BackupStorageLocation, string, string) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+		getStorageCredentials: func(*velerov1api.BackupStorageLocation, velerocredentials.FileStore) (map[string]string, error) {
+			return map[string]string{}, nil
+		},
+	}
+
+	urp := unifiedRepoProvider{
+		credentialGetter: velerocredentials.CredentialGetter{
+			FromSecret: getter,
+		},
+		repoService: repoService,
+		log:         velerotest.NewLogger(),
+	}
+
+	err := urp.BoostRepoConnect(context.Background(), RepoParam{
+		BackupLocation: &velerov1api.BackupStorageLocation{},
+		BackupRepo:     &velerov1api.BackupRepository{},
+	})
+
+	// With the fix, BoostRepoConnect should initialize the repo when ConnectToRepo
+	// gets ErrRepositoryNotInitialized, just like PrepareRepo does.
+	assert.NoError(t, err)
 }
 
 func TestPruneRepo(t *testing.T) {
