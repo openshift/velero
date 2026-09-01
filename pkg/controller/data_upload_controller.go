@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	snapshotter "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -140,6 +140,7 @@ func NewDataUploadReconciler(
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get
 // +kubebuilder:rbac:groups="",resources=persistentvolumerclaims,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;create;delete
 
 func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.logger.WithFields(logrus.Fields{
@@ -264,7 +265,7 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		if r.vgdpCounter != nil && r.vgdpCounter.IsConstrained(ctx, r.logger) {
 			log.Debug("Data path initiation is constrained, requeue later")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 
 		log.Info("Data upload starting")
@@ -358,7 +359,7 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			if err == datapath.ConcurrentLimitExceed {
 				log.Debug("Data path instance is concurrent limited requeue later")
-				return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+				return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 			} else {
 				return r.errorOut(ctx, du, err, "error to create data path", log)
 			}
@@ -390,7 +391,7 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.WithError(err).Warnf("Failed to update dataupload %s to InProgress, will data path close and retry", du.Name)
 
 			r.closeDataPath(ctx, du.Name)
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
 
 		if terminated {

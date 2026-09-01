@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -150,7 +150,7 @@ func (c *PodVolumeRestoreReconcilerLegacy) Reconcile(ctx context.Context, req ct
 	fsRestore, err := c.dataPathMgr.CreateFileSystemBR(pvr.Name, pVBRRequestor, ctx, c.Client, pvr.Namespace, callbacks, log)
 	if err != nil {
 		if err == datapath.ConcurrentLimitExceed {
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		} else {
 			return c.errorOut(ctx, pvr, err, "error to create data path", log)
 		}

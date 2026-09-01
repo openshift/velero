@@ -24,9 +24,9 @@ import (
 
 	"k8s.io/client-go/util/retry"
 
+	"github.com/cockroachdb/errors"
 	volumegroupsnapshotv1beta2 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta2"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	storagev1api "k8s.io/api/storage/v1"
@@ -47,8 +47,10 @@ import (
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerov2alpha1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v2alpha1"
 	veleroclient "github.com/vmware-tanzu/velero/pkg/client"
+	"github.com/vmware-tanzu/velero/pkg/datamover"
 	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	"github.com/vmware-tanzu/velero/pkg/label"
+	"github.com/vmware-tanzu/velero/pkg/nodeagent"
 	plugincommon "github.com/vmware-tanzu/velero/pkg/plugin/framework/common"
 	"github.com/vmware-tanzu/velero/pkg/plugin/utils/volumehelper"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
@@ -333,6 +335,17 @@ func (p *pvcBackupItemAction) Execute(
 		p.log.Debugf("CSI plugin skip snapshot for PVC %s according to the VolumeHelper setting.",
 			pvc.Namespace+"/"+pvc.Name)
 		return nil, nil, "", nil, err
+	}
+
+	// validate that the node-agent daemonset is ready when snapshot data movement with
+	// the built-in data mover is requested. Without this, the DataUpload CR will be
+	// created but never processed (the DataUpload controller runs inside node-agent),
+	// causing the backup to hang until itemOperationTimeout expires.
+	if boolptr.IsSetToTrue(backup.Spec.SnapshotMoveData) && datamover.IsBuiltInUploader(backup.Spec.DataMover) {
+		if err := nodeagent.IsReady(context.TODO(), backup.Namespace, p.crClient); err != nil {
+			p.log.WithError(err).Error("cannot perform snapshot data movement without running node-agent pods")
+			return nil, nil, "", nil, errors.Wrap(err, "CSI PVC BIA cannot proceed: node-agent is not ready for snapshot data movement")
+		}
 	}
 
 	vs, err := p.getVolumeSnapshotReference(context.TODO(), pvc, backup)
@@ -1183,7 +1196,7 @@ func setPVCRequestSizeToVSRestoreSize(
 	logger logrus.FieldLogger,
 ) {
 	if vsc.Status.RestoreSize != nil {
-		logger.Debugf("Patching PVC request size to fit the volumesnapshot restore size %d", vsc.Status.RestoreSize)
+		logger.Debugf("Patching PVC request size to fit the volumesnapshot restore size %d", *vsc.Status.RestoreSize)
 		restoreSize := *resource.NewQuantity(*vsc.Status.RestoreSize, resource.BinarySI)
 
 		// It is possible that the volume provider allocated a larger

@@ -23,7 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/velero/internal/volume"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,9 +106,9 @@ func newRestorer(
 
 				if pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseCompleted || pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseFailed || pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseCanceled {
 					r.resultsLock.Lock()
-					defer r.resultsLock.Unlock()
-
 					resChan, ok := r.results[resultsKey(pvr.Spec.Pod.Namespace, pvr.Spec.Pod.Name)]
+					r.resultsLock.Unlock()
+
 					if !ok {
 						log.Errorf("No results channel found for pod %s/%s to send pod volume restore %s/%s on", pvr.Spec.Pod.Namespace, pvr.Spec.Pod.Name, pvr.Namespace, pvr.Name)
 						return
@@ -147,7 +147,7 @@ func (r *restorer) RestorePodVolumes(data RestoreData, tracker *volume.RestoreVo
 	r.repoLocker.Lock(repo.Name)
 	defer r.repoLocker.Unlock(repo.Name)
 
-	resultsChan := make(chan *velerov1api.PodVolumeRestore)
+	resultsChan := make(chan *velerov1api.PodVolumeRestore, len(volumesToRestore))
 
 	r.resultsLock.Lock()
 	r.results[resultsKey(data.Pod.Namespace, data.Pod.Name)] = resultsChan

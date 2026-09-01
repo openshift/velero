@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -321,6 +321,10 @@ func (r *backupDeletionReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					volumeSnapshotters[snapshot.Spec.Location] = volumeSnapshotter
 				}
 
+				if snapshot.Status.ProviderSnapshotID == "" {
+					log.WithField("volumeSnapshot", snapshot.Spec.PersistentVolumeName).Warn("Skipping snapshot deletion: empty ProviderSnapshotID")
+					continue
+				}
 				if err := volumeSnapshotter.DeleteSnapshot(snapshot.Status.ProviderSnapshotID); err != nil {
 					errs = append(errs, errors.Wrapf(err, "error deleting snapshot %s", snapshot.Status.ProviderSnapshotID).Error())
 				}

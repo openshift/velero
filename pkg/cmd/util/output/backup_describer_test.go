@@ -69,6 +69,34 @@ func TestDescribeResourcePolicies(t *testing.T) {
 	assert.Equal(t, expect, d.buf.String())
 }
 
+func TestDescribeGlobalVolumePolicy(t *testing.T) {
+	newDescriber := func() *Describer {
+		d := &Describer{out: &tabwriter.Writer{}, buf: &bytes.Buffer{}}
+		d.out.Init(d.buf, 0, 8, 2, ' ', 0)
+		return d
+	}
+
+	// No annotation: nothing is printed.
+	d := newDescriber()
+	DescribeGlobalVolumePolicy(d, builder.ForBackup("velero", "b").Result())
+	d.out.Flush()
+	assert.Empty(t, d.buf.String())
+
+	// Annotation present: ConfigMap name is surfaced.
+	d = newDescriber()
+	backup := builder.ForBackup("velero", "b").
+		ObjectMeta(builder.WithAnnotations(velerov1api.GlobalBackupVolumePolicyConfigMapAnnotation, "global-volume-policy")).
+		Result()
+	DescribeGlobalVolumePolicy(d, backup)
+	d.out.Flush()
+	expect := `
+Global volume policies:
+  Type:  configmap
+  Name:  global-volume-policy
+`
+	assert.Equal(t, expect, d.buf.String())
+}
+
 func TestDescribeBackupSpec(t *testing.T) {
 	input1 := builder.ForBackup("test-ns", "test-backup-1").
 		IncludedNamespaces("inc-ns-1", "inc-ns-2").

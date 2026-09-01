@@ -25,10 +25,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotter "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -669,44 +669,20 @@ func WaitUntilVSCHandleIsReady(
 		// The short interval for the first ten seconds is due to the fact that
 		// Microsoft VSS backups have a hard-coded unfreeze call after 10 seconds,
 		// so we need to minimize waiting time during the first 10 seconds.
+		// First poll with a short interval and timeout.
 		interval = 1 * time.Second
-		pollTimeout := 10 * time.Second
-
-		// Create context with extended timeout for rate limiter waits.
-		// This prevents "rate: Wait(n=1) would exceed context deadline" errors
-		// when the client rate limiter needs to wait for tokens during high API load.
-		ctx, cancel := context.WithTimeout(context.Background(), pollTimeout+30*time.Second)
-		defer cancel()
-
-		// Track polling start time to enforce the 10-second limit
-		startTime := time.Now()
-		timeoutExceeded := false
-
-		// Wrap pollFunc to enforce time-based timeout while allowing extended context for rate limiter
-		wrappedPollFunc := func(ctx context.Context) (bool, error) {
-			// Check if we've exceeded the 10-second polling timeout
-			if time.Since(startTime) > pollTimeout {
-				if !timeoutExceeded {
-					timeoutExceeded = true
-					log.Debugf("Polling timeout exceeded after %v, stopping early frequent polling", time.Since(startTime))
-				}
-				return false, wait.ErrorInterrupted(errors.New("early frequent polling timeout exceeded"))
-			}
-			// Call the original pollFunc
-			return pollFunc(ctx)
-		}
-
-		err = wait.PollUntilContextCancel(
-			ctx,
+		timeout := 10 * time.Second
+		err = wait.PollUntilContextTimeout(
+			context.Background(),
 			interval,
+			timeout,
 			true,
-			wrappedPollFunc,
+			pollFunc,
 		)
 
 		if err == nil {
 			return vsc, nil
 		}
-		// Treat interrupted waits as expected (continue to fallback polling)
 		if !wait.Interrupted(err) {
 			return nil, err
 		}

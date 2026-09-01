@@ -624,6 +624,27 @@ func TestDescribeResourcePoliciesInSF(t *testing.T) {
 	assert.True(t, reflect.DeepEqual(sd.output, expect))
 }
 
+func TestDescribeGlobalVolumePolicyInSF(t *testing.T) {
+	// No annotation: nothing is added to the output.
+	sd := &StructuredDescriber{output: make(map[string]any), format: ""}
+	DescribeGlobalVolumePolicyInSF(sd, builder.ForBackup("velero", "b").Result())
+	assert.Empty(t, sd.output)
+
+	// Annotation present: the ConfigMap name is surfaced.
+	sd = &StructuredDescriber{output: make(map[string]any), format: ""}
+	backup := builder.ForBackup("velero", "b").
+		ObjectMeta(builder.WithAnnotations(velerov1api.GlobalBackupVolumePolicyConfigMapAnnotation, "global-volume-policy")).
+		Result()
+	DescribeGlobalVolumePolicyInSF(sd, backup)
+	expectGlobal := map[string]any{
+		"globalVolumePolicies": map[string]any{
+			"type": "configmap",
+			"name": "global-volume-policy",
+		},
+	}
+	assert.True(t, reflect.DeepEqual(sd.output, expectGlobal))
+}
+
 func TestDescribeBackupResultInSF(t *testing.T) {
 	input := results.Result{
 		Velero:  []string{"msg-1", "msg-2"},

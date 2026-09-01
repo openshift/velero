@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -419,7 +419,7 @@ func getInitContainerFromAnnotation(podName string, annotations map[string]strin
 		return nil
 	}
 	if command == "" {
-		log.Infof("RestoreHook init container for pod %s is using container's default entrypoint", podName, containerImage)
+		log.Infof("RestoreHook init container for pod %s is using the default entrypoint of image %s", podName, containerImage)
 	}
 	if containerName == "" {
 		uid, err := uuid.NewRandom()
