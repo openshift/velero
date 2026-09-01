@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -269,8 +269,8 @@ func (p *volumeSnapshotBackupItemAction) Progress(
 	}
 	var err error
 	if progress.Started, err = time.Parse(time.RFC3339, operationIDParts[2]); err != nil {
-		p.log.Errorf("error parsing operation ID's StartedTime",
-			"part into time %s: %s", operationID, err.Error())
+		p.log.Errorf("error parsing operation ID's StartedTime part into time %s: %s",
+			operationID, err.Error())
 		return progress, errors.WithStack(err)
 	}
 

@@ -28,8 +28,8 @@ import (
 	corev1api "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/cockroachdb/errors"
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
 
 	"github.com/fatih/color"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +40,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/downloadrequest"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 
+	"github.com/vmware-tanzu/velero/internal/resourcepolicies"
 	"github.com/vmware-tanzu/velero/internal/volume"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
@@ -93,6 +94,8 @@ func DescribeBackup(
 			DescribeResourcePolicies(d, backup.Spec.ResourcePolicy)
 		}
 
+		DescribeGlobalVolumePolicy(d, backup)
+
 		if backup.Spec.UploaderConfig != nil && backup.Spec.UploaderConfig.ParallelFilesUpload > 0 {
 			d.Println()
 			DescribeUploaderConfigForBackup(d, backup.Spec)
@@ -128,6 +131,19 @@ func DescribeResourcePolicies(d *Describer, resPolicies *corev1api.TypedLocalObj
 	d.Printf("Resource policies:\n")
 	d.Printf("\tType:\t%s\n", resPolicies.Kind)
 	d.Printf("\tName:\t%s\n", resPolicies.Name)
+}
+
+// DescribeGlobalVolumePolicy describes the cluster-wide global backup volume policies
+// ConfigMap that contributed to the backup, if any.
+func DescribeGlobalVolumePolicy(d *Describer, backup *velerov1api.Backup) {
+	name := backup.Annotations[velerov1api.GlobalBackupVolumePolicyConfigMapAnnotation]
+	if name == "" {
+		return
+	}
+	d.Println()
+	d.Printf("Global volume policies:\n")
+	d.Printf("\tType:\t%s\n", resourcepolicies.ConfigmapRefType)
+	d.Printf("\tName:\t%s\n", name)
 }
 
 // DescribeUploaderConfigForBackup describes uploader config in human-readable format

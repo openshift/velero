@@ -23,7 +23,7 @@ import (
 
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 
-	"github.com/pkg/errors"
+	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -176,6 +176,15 @@ func (p *pvcRestoreItemAction) Execute(
 				Name:          vsName,
 				Namespace:     pvc.Namespace,
 			})
+
+			// Force-restore the VolumeSnapshot even when restore resource filters
+			// would otherwise exclude it (mirrors backup-side must-include).
+			annotations := pvc.GetAnnotations()
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[velerov1api.MustIncludeAdditionalItemRestoreAnnotation] = "true"
+			pvc.SetAnnotations(annotations)
 		}
 	}
 
