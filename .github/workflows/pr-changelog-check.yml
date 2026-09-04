@@ -7,6 +7,8 @@ on:
 jobs:
 
   build:
+    # Release branches do not publish upstream changelogs.
+    if: github.base_ref != 'oadp-1.5'
     name: Run Changelog Check
     runs-on: ubuntu-latest
     steps:
