@@ -44,7 +44,7 @@ require (
 	golang.org/x/mod v0.38.0
 	golang.org/x/net v0.56.0
 	golang.org/x/oauth2 v0.35.0
-	golang.org/x/text v0.40.0
+	golang.org/x/text v0.39.0
 	google.golang.org/api v0.218.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -178,7 +178,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
