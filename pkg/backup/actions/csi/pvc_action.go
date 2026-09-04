@@ -255,7 +255,7 @@ func (p *pvcBackupItemAction) Execute(
 	}
 
 	// Wait until VS associated VSC snapshot handle created before
-	// continue.we later requier the vsc restore size
+	// continue. We later require the VSC restore size.
 	vsc, err := csi.WaitUntilVSCHandleIsReady(
 		vs,
 		p.crClient,
