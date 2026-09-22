@@ -316,8 +316,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mfridman/tparse v0.18.0 h1:wh6dzOKaIwkUGyKgOntDW4liXSo37qg5AXbIhkMV3vE=
 github.com/mfridman/tparse v0.18.0/go.mod h1:gEvqZTuCgEhPbYk/2lS3Kcxg1GmTxxU7kTC8DvP0i/A=
-github.com/migtools/kopia v0.0.0-20260904060021-9d3c597548ee h1:12pEnrc8wLb2nVYiZ1VAqiASJniZCKvLkp9wPz3ieo0=
-github.com/migtools/kopia v0.0.0-20260904060021-9d3c597548ee/go.mod h1:sprsaLcP6UwK7dscGucwYseILHyWYCq4XTA7kHiexWA=
+github.com/migtools/kopia v0.0.0-20260922194857-c880aae06643 h1:cxzhCYFPliZZTZ7OSFMSleprFgyqsdom8ZLVi2/ltN0=
+github.com/migtools/kopia v0.0.0-20260922194857-c880aae06643/go.mod h1:0ElhJj+ehAlyXL/KpjnS8E7Z8xS1gGdOWIljOIn557s=
 github.com/minio/crc64nvme v1.1.0 h1:e/tAguZ+4cw32D+IO/8GSf5UVr9y+3eJcxZI2WOO/7Q=
 github.com/minio/crc64nvme v1.1.0/go.mod h1:eVfm2fAzLlxMdUGc0EEBGSMmPwmXD5XiNRpnu9J3bvg=
 github.com/minio/md5-simd v1.1.2 h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=
