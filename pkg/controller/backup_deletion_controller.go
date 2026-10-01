@@ -183,7 +183,6 @@ func (r *backupDeletionReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "error getting backup")
 	}
-
 	// Don't allow deleting backups in read-only storage locations
 	location := &velerov1api.BackupStorageLocation{}
 	if err := r.Get(context.Background(), client.ObjectKey{
@@ -299,6 +298,12 @@ func (r *backupDeletionReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return ctrl.Result{}, err2
 			}
 		}
+	}
+
+	// VGS/VGSC resources are not stored in the Backup tarball, so clean them
+	// independently of whether DeleteItemActions used the tarball.
+	if err := csi.CleanupBackupVolumeGroupSnapshots(ctx, backup, r.Client, log); err != nil {
+		log.WithError(err).Warn("Could not clean up VolumeGroupSnapshots")
 	}
 
 	if backupStore != nil {
@@ -535,7 +540,7 @@ func (r *backupDeletionReconciler) deleteCSIVolumeSnapshotsIfAny(ctx context.Con
 	}
 	for _, item := range vsList.Items {
 		vs := item
-		csi.CleanupVolumeSnapshot(&vs, r.Client, log)
+		csi.CleanupVolumeSnapshot(ctx, &vs, r.Client, log)
 	}
 }
 

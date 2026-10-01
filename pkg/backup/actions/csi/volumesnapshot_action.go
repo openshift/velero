@@ -78,6 +78,8 @@ func (p *volumeSnapshotBackupItemAction) Execute(
 ) {
 	p.log.Infof("Executing VolumeSnapshotBackupItemAction")
 
+	ctx := context.Background()
+
 	vs := new(snapshotv1api.VolumeSnapshot)
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(
 		item.UnstructuredContent(), vs); err != nil {
@@ -86,11 +88,18 @@ func (p *volumeSnapshotBackupItemAction) Execute(
 
 	if backup.Status.Phase == velerov1api.BackupPhaseFinalizing ||
 		backup.Status.Phase == velerov1api.BackupPhaseFinalizingPartiallyFailed {
+		// External-snapshotter blocks finalization of group members while their
+		// parent VGS exists. Terminal VGS cleanup deletes the parent and releases
+		// the member snapshot finalizers.
+		if vs.Status != nil && vs.Status.VolumeGroupSnapshotName != nil &&
+			vs.Labels[velerov1api.BackupUIDLabel] == string(backup.UID) && backup.UID != "" {
+			return item, nil, "", nil, nil
+		}
 		p.log.
 			WithField("Backup", fmt.Sprintf("%s/%s", backup.Namespace, backup.Name)).
 			WithField("BackupPhase", backup.Status.Phase).Debugf("Cleaning VolumeSnapshots.")
 
-		csi.DeleteReadyVolumeSnapshot(*vs, p.crClient, p.log)
+		csi.DeleteReadyVolumeSnapshot(ctx, *vs, p.crClient, p.log)
 		return item, nil, "", nil, nil
 	}
 
@@ -115,11 +124,9 @@ func (p *volumeSnapshotBackupItemAction) Execute(
 	p.log.Infof("Getting VolumesnapshotContent for Volumesnapshot %s/%s",
 		vs.Namespace, vs.Name)
 
-	ctx := context.TODO()
-
 	vsc, err := csi.GetVSCForVS(ctx, vs, p.crClient)
 	if err != nil {
-		csi.CleanupVolumeSnapshot(vs, p.crClient, p.log)
+		csi.CleanupVolumeSnapshot(ctx, vs, p.crClient, p.log)
 		return nil, nil, "", nil, errors.WithStack(err)
 	}
 
@@ -183,6 +190,7 @@ func (p *volumeSnapshotBackupItemAction) Execute(
 			&vsc.ObjectMeta,
 			map[string]string{
 				velerov1api.BackupNameLabel: label.GetValidName(backup.Name),
+				velerov1api.BackupUIDLabel:  string(backup.UID),
 			},
 		)
 
