@@ -41,10 +41,10 @@ require (
 	github.com/vmware-tanzu/crash-diagnostics v0.4.3
 	go.uber.org/zap v1.28.0
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/mod v0.40.0
+	golang.org/x/mod v0.41.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.42.0
 	google.golang.org/api v0.293.0
 	google.golang.org/grpc v1.85.0-dev.0.20260825072537-93e31b48545e
 	google.golang.org/protobuf v1.36.12
@@ -189,11 +189,11 @@ require (
 	go.starlark.net v0.0.0-20241226192728-8dfa5b98479f // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/crypto v0.56.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
@@ -208,4 +208,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
 
-replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20260922194857-c880aae06643
+replace github.com/kopia/kopia => github.com/migtools/kopia v0.0.0-20261012183031-47fc4a34751a
