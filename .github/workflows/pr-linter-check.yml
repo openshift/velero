@@ -16,5 +16,5 @@ jobs:
       - name: Linter check
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.5.0
+          version: v2.13.0
           args: --verbose

@@ -23,7 +23,7 @@ linters:
     - errcheck
     - errchkjson
     - ginkgolinter
-    - goconst
+    #- goconst # Disabled after the golangci-lint update to v2.13.0 (required for Go 1.26), which reports many new findings in this frozen release branch. Upstream velero main disabled it for the same reason.
     - goheader
     - goprintffuncname
     - gosec
@@ -78,6 +78,7 @@ linters:
         - atomicalign
       disable:
         - shadow
+        - inline # new analyzer in golangci-lint v2.13.0 (Go 1.26 vet); only reports style-level indirection suggestions in this frozen release branch
       enable-all: false
       disable-all: false
       settings:
