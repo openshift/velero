@@ -1144,7 +1144,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 	tests := []struct {
 		name                     string
 		repoMaintenanceJobConfig string
-		configMap                *corev1api.ConfigMap
+		configMap                *v1.ConfigMap
 		repo                     *velerov1api.BackupRepository
 		expectedValue            int
 		expectError              bool
@@ -1168,7 +1168,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 		{
 			name:                     "config map with global keepLatestMaintenanceJobs",
 			repoMaintenanceJobConfig: "repo-job-config",
-			configMap: &corev1api.ConfigMap{
+			configMap: &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "velero",
 					Name:      "repo-job-config",
@@ -1184,7 +1184,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 		{
 			name:                     "config map with specific repo keepLatestMaintenanceJobs overriding global",
 			repoMaintenanceJobConfig: "repo-job-config",
-			configMap: &corev1api.ConfigMap{
+			configMap: &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "velero",
 					Name:      "repo-job-config",
@@ -1201,7 +1201,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 		{
 			name:                     "config map with no keepLatestMaintenanceJobs specified",
 			repoMaintenanceJobConfig: "repo-job-config",
-			configMap: &corev1api.ConfigMap{
+			configMap: &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "velero",
 					Name:      "repo-job-config",
@@ -1217,7 +1217,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 		{
 			name:                     "config map with invalid JSON",
 			repoMaintenanceJobConfig: "repo-job-config",
-			configMap: &corev1api.ConfigMap{
+			configMap: &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "velero",
 					Name:      "repo-job-config",
@@ -1235,7 +1235,7 @@ func TestGetKeepLatestMaintenanceJobs(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			corev1api.AddToScheme(scheme)
+			v1.AddToScheme(scheme)
 
 			var objects []runtime.Object
 			if test.configMap != nil {
