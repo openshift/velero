@@ -571,8 +571,8 @@ github.com/mattn/go-runewidth v0.0.2/go.mod h1:LwmH8dsx7+W8Uxz3IHJYH5QSwggIsqBzp
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369/go.mod h1:BSXmuO+STAnVfrANrmjBb36TMTDstsz7MSK+HVaYKv4=
 github.com/miekg/dns v1.0.14/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
-github.com/migtools/kopia v0.0.0-20261021155627-32202dc3afcd h1:xFOV3X25f3HcyEcRROJv4PUG9GVjPKvhO3JztJO9Ins=
-github.com/migtools/kopia v0.0.0-20261021155627-32202dc3afcd/go.mod h1:dsv6nQzzhCX9UAPNXxFhyWrRU7HYRlbehUo65/p1OXc=
+github.com/migtools/kopia v0.0.0-20261021190709-cac232fd9119 h1:iQc+hAoT/NY/Ge8dw7OwzK84+8lZmwQd0xkbf4Mi1Q8=
+github.com/migtools/kopia v0.0.0-20261021190709-cac232fd9119/go.mod h1:dsv6nQzzhCX9UAPNXxFhyWrRU7HYRlbehUo65/p1OXc=
 github.com/minio/md5-simd v1.1.2 h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=
 github.com/minio/md5-simd v1.1.2/go.mod h1:MzdKDxYpY2BT9XQFocsiZf/NKVtR7nkE4RoEpN+20RM=
 github.com/minio/minio-go/v7 v7.0.69 h1:l8AnsQFyY1xiwa/DaQskY4NXSLA2yrGsW5iD9nRPVS0=
