@@ -201,6 +201,14 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	} else {
 		delete(r.cancelledDataDownload, dd.Name)
 
+		// the data path is released by the data path callbacks, but it is still tracked if the CR came to the final
+		// state through another path, e.g., force-canceled by another node after the cancel timeout. Release it,
+		// otherwise the data path concurrency slot of this node is leaked.
+		if r.dataPathMgr.GetAsyncBR(dd.Name) != nil {
+			log.Warnf("Releasing data path of DataDownload %s in final phase %s, it was not released by the data path callbacks", dd.Name, dd.Status.Phase)
+			r.closeDataPath(ctx, dd.Name)
+		}
+
 		// put the finalizer remove action here for all cr will goes to the final status, we could check finalizer and do remove action in final status
 		// instead of intermediate state.
 		// remove finalizer no matter whether the cr is being deleted or not for it is no longer needed when internal resources are all cleaned up

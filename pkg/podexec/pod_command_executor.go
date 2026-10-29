@@ -25,6 +25,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	kscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -46,21 +47,41 @@ type poster interface {
 	Post() *rest.Request
 }
 
+type getter interface {
+	Get() *rest.Request
+}
+
 type defaultPodCommandExecutor struct {
 	restClientConfig *rest.Config
 	restClient       poster
 
 	streamExecutorFactory streamExecutorFactory
+
+	// getPod returns the current state of the pod; nil means the pod is not re-checked before the exec
+	getPod func(ctx context.Context, namespace, name string) (*corev1api.Pod, error)
 }
 
 // NewPodCommandExecutor creates a new PodCommandExecutor.
 func NewPodCommandExecutor(restClientConfig *rest.Config, restClient poster) PodCommandExecutor {
-	return &defaultPodCommandExecutor{
+	e := &defaultPodCommandExecutor{
 		restClientConfig: restClientConfig,
 		restClient:       restClient,
 
 		streamExecutorFactory: &defaultStreamExecutorFactory{},
 	}
+
+	if g, ok := restClient.(getter); ok {
+		e.getPod = func(ctx context.Context, namespace, name string) (*corev1api.Pod, error) {
+			pod := new(corev1api.Pod)
+			if err := g.Get().Resource("pods").Namespace(namespace).Name(name).Do(ctx).Into(pod); err != nil {
+				return nil, err
+			}
+
+			return pod, nil
+		}
+	}
+
+	return e
 }
 
 // ExecutePodCommand uses the pod exec API to execute a command in a container in a pod. If the
@@ -104,7 +125,7 @@ func (e *defaultPodCommandExecutor) ExecutePodCommand(log logrus.FieldLogger, it
 	}
 
 	switch localHook.OnError {
-	case api.HookErrorModeFail, api.HookErrorModeContinue:
+	case api.HookErrorModeFail, api.HookErrorModeContinue, api.HookErrorModeFailBlock:
 		// use the specified value
 	default:
 		// default to fail
@@ -127,6 +148,14 @@ func (e *defaultPodCommandExecutor) ExecutePodCommand(log logrus.FieldLogger, it
 
 	if pod.Status.Phase == corev1api.PodSucceeded || pod.Status.Phase == corev1api.PodFailed {
 		hookLog.Infof("Pod entered phase %s before some post-backup exec hooks ran", pod.Status.Phase)
+		return nil
+	}
+
+	// The item may have been collected long before the hook runs, so the pod may have terminated or been
+	// replaced since then, e.g., the source virt-launcher pod after a VM live migration. Running the hook on
+	// it fails with "container not found", so re-check the pod right before the exec.
+	if skip, reason := e.podGoneSinceCollected(namespace, name, hookLog); skip {
+		hookLog.Warnf("Skipping exec hook, %s since it was collected for backup", reason)
 		return nil
 	}
 
@@ -181,6 +210,34 @@ func (e *defaultPodCommandExecutor) ExecutePodCommand(log logrus.FieldLogger, it
 	hookLog.Infof("stderr: %s", stderr.String())
 
 	return err
+}
+
+// podGoneSinceCollected returns true with a reason if the pod no longer exists, is being deleted, or has
+// terminated. An error getting the pod is not a reason to skip the hook; the exec reports the real error.
+func (e *defaultPodCommandExecutor) podGoneSinceCollected(namespace, name string, log logrus.FieldLogger) (bool, string) {
+	if e.getPod == nil {
+		return false, ""
+	}
+
+	current, err := e.getPod(context.Background(), namespace, name)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, "pod no longer exists"
+		}
+
+		log.WithError(err).Warn("Failed to get the current pod before running exec hook, running the hook anyway")
+		return false, ""
+	}
+
+	if current.DeletionTimestamp != nil {
+		return true, "pod is being deleted"
+	}
+
+	if current.Status.Phase == corev1api.PodSucceeded || current.Status.Phase == corev1api.PodFailed {
+		return true, "pod entered phase " + string(current.Status.Phase)
+	}
+
+	return false, ""
 }
 
 func ensureContainerExists(pod *corev1api.Pod, container string) error {

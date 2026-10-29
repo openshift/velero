@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	v1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	"github.com/vmware-tanzu/velero/pkg/util/actionhelpers"
 )
@@ -55,7 +56,27 @@ func (a *PodAction) GetRelatedItems(item runtime.Unstructured, backup *v1.Backup
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.UnstructuredContent(), pod); err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return actionhelpers.RelatedItemsForPod(pod, a.log), nil
+
+	relatedItems := actionhelpers.RelatedItemsForPod(pod, a.log)
+
+	// A terminated pod no longer uses its volumes and its hooks don't run, so don't pull its PVCs into its
+	// ItemBlock, e.g., the source virt-launcher pod left behind by a KubeVirt live migration. The PVCs are
+	// grouped with the pods that are running on them instead, the same as the PVC ItemBlockAction does.
+	if pod.Status.Phase == corev1api.PodSucceeded || pod.Status.Phase == corev1api.PodFailed {
+		var filtered []velero.ResourceIdentifier
+		for _, relatedItem := range relatedItems {
+			if relatedItem.GroupResource == kuberesource.PersistentVolumeClaims {
+				a.log.Infof("Not adding pvc %s of pod %s in phase %s to the ItemBlock", relatedItem.Name, pod.Name, pod.Status.Phase)
+				continue
+			}
+
+			filtered = append(filtered, relatedItem)
+		}
+
+		relatedItems = filtered
+	}
+
+	return relatedItems, nil
 }
 
 func (a *PodAction) Name() string {

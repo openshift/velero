@@ -134,6 +134,88 @@ func TestPodActionGetRelatedItems(t *testing.T) {
 				{GroupResource: kuberesource.PriorityClasses, Name: "testPriorityClass"},
 			},
 		},
+		{
+			name: "running pod adds its pvcs",
+			pod: velerotest.UnstructuredOrDie(`
+			{
+				"apiVersion": "v1",
+				"kind": "Pod",
+				"metadata": {
+					"namespace": "foo",
+					"name": "bar"
+				},
+				"spec": {
+					"priorityClassName": "testPriorityClass",
+					"volumes": [
+						{
+							"persistentVolumeClaim": {"claimName": "claim1"}
+						}
+					]
+				},
+				"status": {
+					"phase": "Running"
+				}
+			}
+			`),
+			expected: []velero.ResourceIdentifier{
+				{GroupResource: kuberesource.PriorityClasses, Name: "testPriorityClass"},
+				{GroupResource: kuberesource.PersistentVolumeClaims, Namespace: "foo", Name: "claim1"},
+			},
+		},
+		{
+			name: "succeeded pod does not add its pvcs",
+			pod: velerotest.UnstructuredOrDie(`
+			{
+				"apiVersion": "v1",
+				"kind": "Pod",
+				"metadata": {
+					"namespace": "foo",
+					"name": "bar"
+				},
+				"spec": {
+					"priorityClassName": "testPriorityClass",
+					"volumes": [
+						{
+							"persistentVolumeClaim": {"claimName": "claim1"}
+						}
+					]
+				},
+				"status": {
+					"phase": "Succeeded"
+				}
+			}
+			`),
+			expected: []velero.ResourceIdentifier{
+				{GroupResource: kuberesource.PriorityClasses, Name: "testPriorityClass"},
+			},
+		},
+		{
+			name: "failed pod does not add its pvcs",
+			pod: velerotest.UnstructuredOrDie(`
+			{
+				"apiVersion": "v1",
+				"kind": "Pod",
+				"metadata": {
+					"namespace": "foo",
+					"name": "bar"
+				},
+				"spec": {
+					"priorityClassName": "testPriorityClass",
+					"volumes": [
+						{
+							"persistentVolumeClaim": {"claimName": "claim1"}
+						}
+					]
+				},
+				"status": {
+					"phase": "Failed"
+				}
+			}
+			`),
+			expected: []velero.ResourceIdentifier{
+				{GroupResource: kuberesource.PriorityClasses, Name: "testPriorityClass"},
+			},
+		},
 	}
 
 	for _, test := range tests {

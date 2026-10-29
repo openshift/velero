@@ -190,6 +190,14 @@ func (r *PodVolumeRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	} else {
 		delete(r.cancelledPVR, pvr.Name)
 
+		// the data path is released by the data path callbacks, but it is still tracked if the CR came to the final
+		// state through another path, e.g., force-canceled by another node after the cancel timeout. Release it,
+		// otherwise the data path concurrency slot of this node is leaked.
+		if r.dataPathMgr.GetAsyncBR(pvr.Name) != nil {
+			log.Warnf("Releasing data path of PodVolumeRestore %s in final phase %s, it was not released by the data path callbacks", pvr.Name, pvr.Status.Phase)
+			r.closeDataPath(ctx, pvr.Name)
+		}
+
 		if controllerutil.ContainsFinalizer(pvr, PodVolumeFinalizer) {
 			if err := UpdatePVRWithRetry(ctx, r.client, req.NamespacedName, log, func(pvr *velerov1api.PodVolumeRestore) bool {
 				if !controllerutil.ContainsFinalizer(pvr, PodVolumeFinalizer) {

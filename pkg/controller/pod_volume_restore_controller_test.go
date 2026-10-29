@@ -935,6 +935,20 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 			expectDataPath:     true,
 			expectCancelRecord: true,
 		},
+		{
+			name:           "release data path of pvr canceled by another node",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseCanceled).Cancel(true).Finalizers([]string{PodVolumeFinalizer}).Node("test-node").Result(),
+			needCreateFSBR: true,
+			mockClose:      true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseCanceled).Cancel(true).Result(),
+		},
+		{
+			name:           "release data path of pvr in terminal state",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseFailed).Node("test-node").Result(),
+			needCreateFSBR: true,
+			mockClose:      true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseFailed).Result(),
+		},
 	}
 
 	for _, test := range tests {
