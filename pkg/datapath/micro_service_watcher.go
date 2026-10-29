@@ -74,6 +74,9 @@ type microServiceBRWatcher struct {
 	podCh               chan *corev1api.Pod
 	startedFromEvent    bool
 	terminatedFromEvent bool
+	cancelledFromEvent  bool
+	completedFromEvent  *Result
+	failedFromEvent     string
 	wgWatcher           sync.WaitGroup
 	eventInformer       ctrlcache.Informer
 	podInformer         ctrlcache.Informer
@@ -148,9 +151,10 @@ func (ms *microServiceBRWatcher) Init(ctx context.Context, param any) error {
 				}
 
 				if pod.Status.Phase == corev1api.PodSucceeded || pod.Status.Phase == corev1api.PodFailed {
-					ms.podCh <- pod
+					ms.notifyPod(pod)
 				}
 			},
+			DeleteFunc: ms.onPodDeleted,
 		},
 	)
 	if err != nil {
@@ -239,11 +243,46 @@ func (ms *microServiceBRWatcher) reEnsureThisPod(ctx context.Context) error {
 	}
 
 	if thisPod.Status.Phase == corev1api.PodSucceeded || thisPod.Status.Phase == corev1api.PodFailed {
-		ms.podCh <- thisPod
+		ms.notifyPod(thisPod)
 		ms.log.WithField("this pod", ms.thisPod).Infof("This pod comes to terminital status %s before watch start", thisPod.Status.Phase)
 	}
 
 	return nil
+}
+
+// notifyPod hands the data path pod over to the watch loop. The watch loop only consumes the first pod,
+// so the send never blocks; otherwise a later pod update or delete would block the informer handler forever.
+func (ms *microServiceBRWatcher) notifyPod(pod *corev1api.Pod) {
+	select {
+	case ms.podCh <- pod:
+	default:
+	}
+}
+
+// onPodDeleted handles the deletion of the data path pod. When the pod is force deleted, evicted (e.g., by a
+// node drain or the descheduler), or removed by the pod GC after its node is gone, the pod object may disappear
+// while its phase is still Running, so no update to Succeeded/Failed is ever received.
+func (ms *microServiceBRWatcher) onPodDeleted(obj any) {
+	pod, ok := obj.(*corev1api.Pod)
+	if !ok {
+		// a delete event missed by the watch and recovered by a relist comes as a tombstone wrapping the last known object
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			return
+		}
+
+		if pod, ok = tombstone.Obj.(*corev1api.Pod); !ok {
+			return
+		}
+	}
+
+	if pod.Namespace != ms.namespace || pod.Name != ms.thisPod {
+		return
+	}
+
+	ms.log.WithField("this pod", ms.thisPod).Infof("Data path pod %s of %s task %s is deleted in phase %s", pod.Name, ms.taskType, ms.taskName, pod.Status.Phase)
+
+	ms.notifyPod(pod)
 }
 
 var funcGetPodTerminationMessage = kube.GetPodContainerTerminateMessage
@@ -319,16 +358,45 @@ func (ms *microServiceBRWatcher) startWatch() {
 
 		logger.Info("Calling callback on data path pod termination")
 
+		// only onPodDeleted delivers a pod that is in neither the Succeeded nor the Failed phase
+		podDeleted := lastPod.Status.Phase != corev1api.PodSucceeded && lastPod.Status.Phase != corev1api.PodFailed
+
 		if lastPod.Status.Phase == corev1api.PodSucceeded {
 			result := funcGetResultFromMessage(ms.taskType, terminateMessage, ms.log)
 			ms.callbacks.OnProgress(ms.ctx, ms.namespace, ms.taskName, getCompletionProgressFromResult(ms.taskType, result))
 			ms.callbacks.OnCompleted(ms.ctx, ms.namespace, ms.taskName, result)
-		} else {
-			if strings.HasSuffix(terminateMessage, ErrCancelled) {
-				ms.callbacks.OnCancelled(ms.ctx, ms.namespace, ms.taskName)
+		} else if ms.completedFromEvent != nil {
+			// the data path already completed and reported its result before the pod went away, e.g., the pod was
+			// evicted after the completed event, so the result is taken from the event rather than the termination message
+			if podDeleted {
+				logger.Warnf("Data path pod %s was deleted in phase %s after the data path completed, completing %s task %s through the pod deletion path", lastPod.Name, lastPod.Status.Phase, ms.taskType, ms.taskName)
 			} else {
-				ms.callbacks.OnFailed(ms.ctx, ms.namespace, ms.taskName, errors.New(terminateMessage))
+				logger.Warnf("Data path pod %s is in phase %s after the data path completed, completing %s task %s with the result from the completed event", lastPod.Name, lastPod.Status.Phase, ms.taskType, ms.taskName)
 			}
+
+			ms.callbacks.OnProgress(ms.ctx, ms.namespace, ms.taskName, getCompletionProgressFromResult(ms.taskType, *ms.completedFromEvent))
+			ms.callbacks.OnCompleted(ms.ctx, ms.namespace, ms.taskName, *ms.completedFromEvent)
+		} else if strings.HasSuffix(terminateMessage, ErrCancelled) || (podDeleted && ms.cancelledFromEvent) {
+			if podDeleted {
+				logger.Warnf("Data path pod %s was deleted in phase %s, canceling %s task %s through the pod deletion path", lastPod.Name, lastPod.Status.Phase, ms.taskType, ms.taskName)
+			}
+
+			ms.callbacks.OnCancelled(ms.ctx, ms.namespace, ms.taskName)
+		} else {
+			err := errors.New(terminateMessage)
+			if podDeleted && terminateMessage == "" {
+				if ms.failedFromEvent != "" {
+					err = errors.Errorf("data path pod %s was deleted in phase %s, data path failed: %s", lastPod.Name, lastPod.Status.Phase, ms.failedFromEvent)
+				} else {
+					err = errors.Errorf("data path pod %s was deleted in phase %s before the data path completed", lastPod.Name, lastPod.Status.Phase)
+				}
+			}
+
+			if podDeleted {
+				logger.WithError(err).Warnf("Data path pod %s was deleted in phase %s, failing %s task %s through the pod deletion path", lastPod.Name, lastPod.Status.Phase, ms.taskType, ms.taskName)
+			}
+
+			ms.callbacks.OnFailed(ms.ctx, ms.namespace, ms.taskName, err)
 		}
 
 		logger.Info("Complete callback on data path pod termination")
@@ -343,10 +411,18 @@ func (ms *microServiceBRWatcher) onEvent(evt *corev1api.Event) {
 	case EventReasonProgress:
 		ms.callbacks.OnProgress(ms.ctx, ms.namespace, ms.taskName, funcGetProgressFromMessage(evt.Message, ms.log))
 	case EventReasonCompleted:
-		ms.log.Infof("Received data path completed message: %v", funcGetResultFromMessage(ms.taskType, evt.Message, ms.log))
+		result, err := parseResultFromMessage(ms.taskType, evt.Message)
+		if err != nil {
+			ms.log.WithError(err).Errorf("Failed to unmarshal data path completed message %s", evt.Message)
+		} else {
+			ms.completedFromEvent = &result
+			ms.log.Infof("Received data path completed message: %v", result)
+		}
 	case EventReasonCancelled:
+		ms.cancelledFromEvent = true
 		ms.log.Infof("Received data path canceled message: %s", evt.Message)
 	case EventReasonFailed:
+		ms.failedFromEvent = evt.Message
 		ms.log.Infof("Received data path failed message: %s", evt.Message)
 	case EventReasonCancelling:
 		ms.log.Infof("Received data path canceling message: %s", evt.Message)
@@ -359,27 +435,34 @@ func (ms *microServiceBRWatcher) onEvent(evt *corev1api.Event) {
 }
 
 func getResultFromMessage(taskType string, message string, logger logrus.FieldLogger) Result {
+	result, err := parseResultFromMessage(taskType, message)
+	if err != nil {
+		logger.WithError(err).Errorf("Failed to unmarshal result message %s", message)
+	}
+
+	return result
+}
+
+func parseResultFromMessage(taskType string, message string) (Result, error) {
 	result := Result{}
 
 	if taskType == TaskTypeBackup {
 		backupResult := BackupResult{}
-		err := json.Unmarshal([]byte(message), &backupResult)
-		if err != nil {
-			logger.WithError(err).Errorf("Failed to unmarshal result message %s", message)
-		} else {
-			result.Backup = backupResult
+		if err := json.Unmarshal([]byte(message), &backupResult); err != nil {
+			return result, err
 		}
+
+		result.Backup = backupResult
 	} else {
 		restoreResult := RestoreResult{}
-		err := json.Unmarshal([]byte(message), &restoreResult)
-		if err != nil {
-			logger.WithError(err).Errorf("Failed to unmarshal result message %s", message)
-		} else {
-			result.Restore = restoreResult
+		if err := json.Unmarshal([]byte(message), &restoreResult); err != nil {
+			return result, err
 		}
+
+		result.Restore = restoreResult
 	}
 
-	return result
+	return result, nil
 }
 
 func getProgressFromMessage(message string, logger logrus.FieldLogger) *uploader.Progress {

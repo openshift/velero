@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1api "k8s.io/api/core/v1"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	kubeclientfake "k8s.io/client-go/kubernetes/fake"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/velero/pkg/builder"
@@ -122,6 +124,8 @@ type startWatchFake struct {
 	failed             bool
 	canceled           bool
 	progress           int
+	result             Result
+	failErr            error
 }
 
 func (sw *startWatchFake) getPodContainerTerminateMessage(pod *corev1api.Pod, container string) string {
@@ -138,10 +142,12 @@ func (sw *startWatchFake) getResultFromMessage(_ string, _ string, _ logrus.Fiel
 
 func (sw *startWatchFake) OnCompleted(ctx context.Context, namespace string, task string, result Result) {
 	sw.complete = true
+	sw.result = result
 }
 
 func (sw *startWatchFake) OnFailed(ctx context.Context, namespace string, task string, err error) {
 	sw.failed = true
+	sw.failErr = err
 }
 
 func (sw *startWatchFake) OnCancelled(ctx context.Context, namespace string, task string) {
@@ -169,13 +175,18 @@ func TestStartWatch(t *testing.T) {
 		insertPod            *corev1api.Pod
 		insertEventsBefore   []insertEvent
 		insertEventsAfter    []insertEvent
+		deletePod            *corev1api.Pod
+		deleteTombstone      bool
 		ctxCancel            bool
 		expectStartEvent     bool
 		expectTerminateEvent bool
 		expectComplete       bool
 		expectCancel         bool
 		expectFail           bool
+		expectFailMsg        string
+		expectResult         *Result
 		expectProgress       int
+		expectLog            string
 	}{
 		{
 			name:          "exit from ctx",
@@ -370,6 +381,214 @@ func TestStartWatch(t *testing.T) {
 			expectTerminateEvent: true,
 			expectCancel:         true,
 		},
+		{
+			name:          "deleted while running",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+			},
+			expectStartEvent: true,
+			expectFail:       true,
+			expectFailMsg:    "data path pod fake-pod-1 was deleted in phase Running before the data path completed",
+			expectLog:        "Data path pod fake-pod-1 was deleted in phase Running, failing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:            "deleted while running, delete recovered from tombstone",
+			namespace:       "velero",
+			thisPod:         "fake-pod-1",
+			thisContainer:   "fake-container-1",
+			deletePod:       builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			deleteTombstone: true,
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectFail:           true,
+			expectFailMsg:        "data path pod fake-pod-1 was deleted in phase Running before the data path completed",
+			expectLog:            "Data path pod fake-pod-1 was deleted in phase Running, failing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "deleted while running after failed event",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonFailed, Message: "fake-failed-message"},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectFail:           true,
+			expectFailMsg:        "data path pod fake-pod-1 was deleted in phase Running, data path failed: fake-failed-message",
+			expectLog:            "Data path pod fake-pod-1 was deleted in phase Running, failing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "deleted after completed event",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonCompleted, Message: `{"snapshotID":"fake-snapshot-id","emptySnapshot":false,"source":{"byPath":"/fake-path","volumeMode":"Block"},"totalBytes":1073741824,"incrementalBytes":1024}`},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectComplete:       true,
+			expectResult: &Result{Backup: BackupResult{
+				SnapshotID:       "fake-snapshot-id",
+				Source:           AccessPoint{ByPath: "/fake-path", VolMode: uploader.PersistentVolumeBlock},
+				TotalBytes:       1073741824,
+				IncrementalBytes: 1024,
+			}},
+			expectProgress: 1,
+			expectLog:      "Data path pod fake-pod-1 was deleted in phase Running after the data path completed, completing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "deleted after completed event, stop event not received",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonCompleted, Message: `{"snapshotID":"fake-snapshot-id","emptySnapshot":false,"source":{"byPath":"/fake-path","volumeMode":"Block"},"totalBytes":1073741824,"incrementalBytes":1024}`},
+				},
+			},
+			expectStartEvent: true,
+			expectComplete:   true,
+			expectResult: &Result{Backup: BackupResult{
+				SnapshotID:       "fake-snapshot-id",
+				Source:           AccessPoint{ByPath: "/fake-path", VolMode: uploader.PersistentVolumeBlock},
+				TotalBytes:       1073741824,
+				IncrementalBytes: 1024,
+			}},
+			expectProgress: 1,
+			expectLog:      "Data path pod fake-pod-1 was deleted in phase Running after the data path completed, completing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "deleted after completed event with invalid message",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonCompleted, Message: "fake-invalid-message"},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectFail:           true,
+			expectFailMsg:        "data path pod fake-pod-1 was deleted in phase Running before the data path completed",
+			expectLog:            "Data path pod fake-pod-1 was deleted in phase Running, failing backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "failed phase after completed event",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			insertPod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodFailed).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonCompleted, Message: `{"snapshotID":"fake-snapshot-id","emptySnapshot":false,"source":{"byPath":"/fake-path","volumeMode":"Block"},"totalBytes":1073741824,"incrementalBytes":1024}`},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectComplete:       true,
+			expectResult: &Result{Backup: BackupResult{
+				SnapshotID:       "fake-snapshot-id",
+				Source:           AccessPoint{ByPath: "/fake-path", VolMode: uploader.PersistentVolumeBlock},
+				TotalBytes:       1073741824,
+				IncrementalBytes: 1024,
+			}},
+			expectProgress: 1,
+			expectLog:      "Data path pod fake-pod-1 is in phase Failed after the data path completed, completing backup task fake-du-name with the result from the completed event",
+		},
+		{
+			name:          "deleted after canceled event",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonCancelled},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectCancel:         true,
+			expectLog:            "Data path pod fake-pod-1 was deleted in phase Running, canceling backup task fake-du-name through the pod deletion path",
+		},
+		{
+			name:          "deleted with canceled termination message",
+			namespace:     "velero",
+			thisPod:       "fake-pod-1",
+			thisContainer: "fake-container-1",
+			deletePod:     builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+			insertEventsBefore: []insertEvent{
+				{
+					event: &corev1api.Event{Reason: EventReasonStarted},
+				},
+				{
+					event: &corev1api.Event{Reason: EventReasonStopped},
+				},
+			},
+			terminationMessage:   fmt.Sprintf("Failed to run data path service for DataUpload %s: %v", "fake-du-name", errors.New(ErrCancelled)),
+			expectStartEvent:     true,
+			expectTerminateEvent: true,
+			expectCancel:         true,
+			expectLog:            "Data path pod fake-pod-1 was deleted in phase Running, canceling backup task fake-du-name through the pod deletion path",
+		},
 	}
 
 	for _, test := range tests {
@@ -385,14 +604,18 @@ func TestStartWatch(t *testing.T) {
 			funcRedirectLog = sw.redirectDataMoverLogs
 			funcGetResultFromMessage = sw.getResultFromMessage
 
+			logger, logHook := logrustest.NewNullLogger()
+
 			ms := &microServiceBRWatcher{
 				ctx:           ctx,
 				namespace:     test.namespace,
+				taskType:      TaskTypeBackup,
+				taskName:      "fake-du-name",
 				thisPod:       test.thisPod,
 				thisContainer: test.thisContainer,
 				podCh:         make(chan *corev1api.Pod, 2),
 				eventCh:       make(chan *corev1api.Event, 10),
-				log:           velerotest.NewLogger(),
+				log:           logger,
 				callbacks: Callbacks{
 					OnCompleted: sw.OnCompleted,
 					OnFailed:    sw.OnFailed,
@@ -423,6 +646,14 @@ func TestStartWatch(t *testing.T) {
 				ms.podCh <- test.insertPod
 			}
 
+			if test.deletePod != nil {
+				if test.deleteTombstone {
+					ms.onPodDeleted(cache.DeletedFinalStateUnknown{Key: "velero/" + test.deletePod.Name, Obj: test.deletePod})
+				} else {
+					ms.onPodDeleted(test.deletePod)
+				}
+			}
+
 			for _, ev := range test.insertEventsAfter {
 				if ev.after != 0 {
 					time.Sleep(ev.after)
@@ -444,7 +675,115 @@ func TestStartWatch(t *testing.T) {
 			assert.Equal(t, test.expectFail, sw.failed)
 			assert.Equal(t, test.expectProgress, sw.progress)
 
+			if test.expectFailMsg != "" {
+				require.Error(t, sw.failErr)
+				assert.Equal(t, test.expectFailMsg, sw.failErr.Error())
+			}
+
+			if test.expectResult != nil {
+				assert.Equal(t, *test.expectResult, sw.result)
+			}
+
+			if test.expectLog != "" {
+				found := false
+				for _, entry := range logHook.AllEntries() {
+					if entry.Message == test.expectLog {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected log %q not found", test.expectLog)
+			}
+
 			cancel()
+		})
+	}
+}
+
+func TestOnPodDeleted(t *testing.T) {
+	thisPod := builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodRunning).Result()
+
+	tests := []struct {
+		name      string
+		obj       any
+		podChLen  int
+		expectPod bool
+	}{
+		{
+			name:      "this pod is deleted",
+			obj:       thisPod,
+			expectPod: true,
+		},
+		{
+			name:      "this pod is deleted with final state unknown",
+			obj:       cache.DeletedFinalStateUnknown{Key: "velero/fake-pod-1", Obj: thisPod},
+			expectPod: true,
+		},
+		{
+			name: "other pod is deleted",
+			obj:  builder.ForPod("velero", "fake-pod-2").Phase(corev1api.PodRunning).Result(),
+		},
+		{
+			name: "pod in other namespace is deleted",
+			obj:  builder.ForPod("fake-ns", "fake-pod-1").Phase(corev1api.PodRunning).Result(),
+		},
+		{
+			name: "other pod is deleted with final state unknown",
+			obj:  cache.DeletedFinalStateUnknown{Key: "velero/fake-pod-2", Obj: builder.ForPod("velero", "fake-pod-2").Phase(corev1api.PodRunning).Result()},
+		},
+		{
+			name: "final state unknown with unexpected object",
+			obj:  cache.DeletedFinalStateUnknown{Key: "velero/fake-pod-1", Obj: &corev1api.Event{}},
+		},
+		{
+			name: "unexpected object",
+			obj:  &corev1api.Event{},
+		},
+		{
+			name:      "pod channel is full",
+			obj:       thisPod,
+			podChLen:  2,
+			expectPod: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger, logHook := logrustest.NewNullLogger()
+
+			ms := &microServiceBRWatcher{
+				namespace: "velero",
+				taskType:  TaskTypeBackup,
+				taskName:  "fake-du-name",
+				thisPod:   "fake-pod-1",
+				podCh:     make(chan *corev1api.Pod, 2),
+				log:       logger,
+			}
+
+			for range test.podChLen {
+				ms.podCh <- builder.ForPod("velero", "fake-pod-1").Phase(corev1api.PodFailed).Result()
+			}
+
+			// the hand-off must never block the informer handler, even when the channel is full
+			ms.onPodDeleted(test.obj)
+
+			if !test.expectPod {
+				assert.Empty(t, ms.podCh)
+				assert.Empty(t, logHook.AllEntries())
+				return
+			}
+
+			require.NotNil(t, logHook.LastEntry())
+			assert.Equal(t, "Data path pod fake-pod-1 of backup task fake-du-name is deleted in phase Running", logHook.LastEntry().Message)
+
+			if test.podChLen > 0 {
+				assert.Len(t, ms.podCh, test.podChLen)
+				return
+			}
+
+			require.Len(t, ms.podCh, 1)
+			pod := <-ms.podCh
+			assert.Equal(t, corev1api.PodRunning, pod.Status.Phase)
 		})
 	}
 }
