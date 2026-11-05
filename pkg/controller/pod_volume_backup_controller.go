@@ -266,7 +266,10 @@ func (r *PodVolumeBackupReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		return ctrl.Result{}, nil
 	} else if pvb.Status.Phase == velerov1api.PodVolumeBackupPhaseAccepted {
-		if peekErr := r.exposer.PeekExposed(ctx, getPVBOwnerObject(pvb)); peekErr != nil {
+		// A data mover pod that is gone after expose is reported right away instead of
+		// waiting for the prepare timeout, but not before the grace period that
+		// covers the window between Accepted and the pod creation.
+		if peekErr := exposer.IgnoreHostingPodGoneInGracePeriod(r.exposer.PeekExposed(ctx, getPVBOwnerObject(pvb)), pvb.Status.AcceptedTimestamp); peekErr != nil {
 			log.Errorf("Cancel PVB %s/%s because of expose error %s", pvb.Namespace, pvb.Name, peekErr)
 
 			diags := strings.Split(r.exposer.DiagnoseExpose(ctx, getPVBOwnerObject(pvb)), "\n")

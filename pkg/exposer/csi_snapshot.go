@@ -383,12 +383,32 @@ func (e *csiSnapshotExposer) PeekExposed(ctx context.Context, ownerObject corev1
 
 	pod, err := e.kubeClient.CoreV1().Pods(ownerObject.Namespace).Get(ctx, backupPodName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil
+		// Expose creates the backup PVC right before the backup pod. If the
+		// backup PVC has existed for a while but the pod doesn't, the pod was
+		// created and then deleted or evicted. Otherwise expose may still be
+		// on going (e.g. waiting for the snapshot to be ready).
+		pvc, pvcErr := e.kubeClient.CoreV1().PersistentVolumeClaims(ownerObject.Namespace).Get(ctx, ownerObject.Name, metav1.GetOptions{})
+		if pvcErr != nil {
+			if !apierrors.IsNotFound(pvcErr) {
+				curLog.WithError(pvcErr).Warnf("error to peek backup pvc %s", ownerObject.Name)
+			}
+			return nil
+		}
+
+		if time.Since(pvc.CreationTimestamp.Time) < HostingPodGoneGracePeriod {
+			return nil
+		}
+
+		return fmt.Errorf("%w: backup pod %s/%s is not found while backup PVC %s exists", ErrHostingPodGone, ownerObject.Namespace, backupPodName, pvc.Name)
 	}
 
 	if err != nil {
 		curLog.WithError(err).Warnf("error to peek backup pod %s", backupPodName)
 		return nil
+	}
+
+	if pod.DeletionTimestamp != nil {
+		return fmt.Errorf("%w: backup pod %s/%s is being deleted", ErrHostingPodGone, pod.Namespace, pod.Name)
 	}
 
 	if podFailed, message := kube.IsPodUnrecoverable(pod, curLog); podFailed {

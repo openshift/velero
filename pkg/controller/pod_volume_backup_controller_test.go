@@ -357,9 +357,30 @@ func TestPVBReconcile(t *testing.T) {
 			expected:        pvbBuilder().Finalizers([]string{PodVolumeFinalizer}).Phase(velerov1api.PodVolumeBackupPhaseAccepted).Result(),
 		},
 		{
-			name:     "prepare timeout on accepted",
-			pvb:      pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-time.Minute * 30)}).Result(),
-			expected: pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseFailed).Finalizers([]string{PodVolumeFinalizer}).Phase(velerov1api.PodVolumeBackupPhaseFailed).Message("timeout on preparing PVB").Result(),
+			name:            "prepare timeout on accepted",
+			pvb:             pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-time.Minute * 30)}).Result(),
+			needMockExposer: true,
+			expected:        pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseFailed).Finalizers([]string{PodVolumeFinalizer}).Phase(velerov1api.PodVolumeBackupPhaseFailed).Message("timeout on preparing PVB").Result(),
+		},
+		{
+			name:            "hosting pod gone on accepted after grace period",
+			pvb:             pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			needMockExposer: true,
+			peekErr:         fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected:        pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseCanceled).Finalizers([]string{PodVolumeFinalizer}).Message("found a PVB velero/pvb-1 with expose error: data mover pod was deleted or evicted while preparing: fake-detail. mark it as cancel").Result(),
+		},
+		{
+			name:            "hosting pod not created yet on accepted in grace period",
+			pvb:             pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now()}).Result(),
+			needMockExposer: true,
+			peekErr:         fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected:        pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Result(),
+		},
+		{
+			name:            "hosting pod exists on accepted",
+			pvb:             pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			needMockExposer: true,
+			expected:        pvbBuilder().Phase(velerov1api.PodVolumeBackupPhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Result(),
 		},
 		{
 			name:            "peek error on accepted",

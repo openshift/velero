@@ -192,6 +192,8 @@ func TestDataDownloadReconcile(t *testing.T) {
 		isGetExposeErr           bool
 		isGetExposeNil           bool
 		isPeekExposeErr          bool
+		mockPeek                 bool
+		peekExposeErr            error
 		isNilExposer             bool
 		notNilExpose             bool
 		notMockCleanUp           bool
@@ -361,6 +363,28 @@ func TestDataDownloadReconcile(t *testing.T) {
 			dd:              dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
 			isPeekExposeErr: true,
 			expected:        dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseCanceled).Finalizers([]string{DataUploadDownloadFinalizer}).Phase(velerov2alpha1api.DataDownloadPhaseCanceled).Message("found a datadownload velero/datadownload-1 with expose error: fake-peek-error. mark it as cancel").Result(),
+		},
+		{
+			name:          "restore pod gone on accepted after grace period",
+			dd:            dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			mockPeek:      true,
+			peekExposeErr: fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected:      dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseCanceled).Finalizers([]string{DataUploadDownloadFinalizer}).Message("found a datadownload velero/datadownload-1 with expose error: data mover pod was deleted or evicted while preparing: fake-detail. mark it as cancel").Result(),
+		},
+		{
+			name:           "restore pod not created yet on accepted in grace period",
+			dd:             dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now()}).Result(),
+			mockPeek:       true,
+			peekExposeErr:  fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			notMockCleanUp: true,
+			expected:       dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
+		},
+		{
+			name:           "restore pod exists on accepted",
+			dd:             dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			mockPeek:       true,
+			notMockCleanUp: true,
+			expected:       dataDownloadBuilder().Phase(velerov2alpha1api.DataDownloadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
 		},
 		{
 			name:     "cancel on prepared",
@@ -557,7 +581,7 @@ func TestDataDownloadReconcile(t *testing.T) {
 				return asyncBR
 			}
 
-			if test.isExposeErr || test.isGetExposeErr || test.isGetExposeNil || test.isPeekExposeErr || test.isNilExposer || test.notNilExpose {
+			if test.isExposeErr || test.isGetExposeErr || test.isGetExposeNil || test.isPeekExposeErr || test.mockPeek || test.isNilExposer || test.notNilExpose {
 				if test.isNilExposer {
 					r.restoreExposer = nil
 				} else {
@@ -576,6 +600,9 @@ func TestDataDownloadReconcile(t *testing.T) {
 						} else if test.isPeekExposeErr {
 							ep.On("PeekExposed", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("fake-peek-error"))
 							ep.On("DiagnoseExpose", mock.Anything, mock.Anything).Return("")
+						} else if test.mockPeek {
+							ep.On("PeekExposed", mock.Anything, mock.Anything).Return(test.peekExposeErr)
+							ep.On("DiagnoseExpose", mock.Anything, mock.Anything).Return("").Maybe()
 						}
 
 						if !test.notMockCleanUp {

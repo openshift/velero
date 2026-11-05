@@ -300,7 +300,10 @@ func (r *DataDownloadReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		return ctrl.Result{}, nil
 	} else if dd.Status.Phase == velerov2alpha1api.DataDownloadPhaseAccepted {
-		if peekErr := r.restoreExposer.PeekExposed(ctx, getDataDownloadOwnerObject(dd)); peekErr != nil {
+		// A data mover pod that is gone after expose is reported right away instead of
+		// waiting for the prepare timeout, but not before the grace period that
+		// covers the window between Accepted and the pod creation.
+		if peekErr := exposer.IgnoreHostingPodGoneInGracePeriod(r.restoreExposer.PeekExposed(ctx, getDataDownloadOwnerObject(dd)), dd.Status.AcceptedTimestamp); peekErr != nil {
 			log.Errorf("Cancel dd %s/%s because of expose error %s", dd.Namespace, dd.Name, peekErr)
 
 			diags := strings.Split(r.restoreExposer.DiagnoseExpose(ctx, getDataDownloadOwnerObject(dd)), "\n")
