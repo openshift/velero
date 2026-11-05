@@ -115,7 +115,7 @@ RUN set -eux; \
 # get golangci-lint
 # Use "go install" so the download goes through GOPROXY instead of the GitHub
 # release API/CDN, which has been returning intermittent/persistent HTTP 504s.
-RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
 # Fix the "dubious ownership" issue from git when running goreleaser.sh
 RUN echo "[safe] \n\t directory = *" > /.gitconfig
