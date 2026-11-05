@@ -190,6 +190,14 @@ func (r *PodVolumeRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	} else {
 		delete(r.cancelledPVR, pvr.Name)
 
+		// the data path is released by the data path callbacks, but it is still tracked if the CR came to the final
+		// state through another path, e.g., force-canceled by another node after the cancel timeout. Release it,
+		// otherwise the data path concurrency slot of this node is leaked.
+		if r.dataPathMgr.GetAsyncBR(pvr.Name) != nil {
+			log.Warnf("Releasing data path of PodVolumeRestore %s in final phase %s, it was not released by the data path callbacks", pvr.Name, pvr.Status.Phase)
+			r.closeDataPath(ctx, pvr.Name)
+		}
+
 		if controllerutil.ContainsFinalizer(pvr, PodVolumeFinalizer) {
 			if err := UpdatePVRWithRetry(ctx, r.client, req.NamespacedName, log, func(pvr *velerov1api.PodVolumeRestore) bool {
 				if !controllerutil.ContainsFinalizer(pvr, PodVolumeFinalizer) {
@@ -272,7 +280,10 @@ func (r *PodVolumeRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, nil
 	} else if pvr.Status.Phase == velerov1api.PodVolumeRestorePhaseAccepted {
-		if peekErr := r.exposer.PeekExposed(ctx, getPVROwnerObject(pvr)); peekErr != nil {
+		// A data mover pod that is gone after expose is reported right away instead of
+		// waiting for the prepare timeout, but not before the grace period that
+		// covers the window between Accepted and the pod creation.
+		if peekErr := exposer.IgnoreHostingPodGoneInGracePeriod(r.exposer.PeekExposed(ctx, getPVROwnerObject(pvr)), pvr.Status.AcceptedTimestamp); peekErr != nil {
 			log.Errorf("Cancel PVR %s/%s because of expose error %s", pvr.Namespace, pvr.Name, peekErr)
 
 			diags := strings.Split(r.exposer.DiagnoseExpose(ctx, getPVROwnerObject(pvr)), "\n")

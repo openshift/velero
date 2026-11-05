@@ -313,12 +313,28 @@ func (e *genericRestoreExposer) PeekExposed(ctx context.Context, ownerObject cor
 
 	pod, err := e.kubeClient.CoreV1().Pods(ownerObject.Namespace).Get(ctx, restorePodName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil
+		// Expose creates the restore PVC right after the restore pod, so if the
+		// restore PVC exists the pod was created and then deleted or evicted.
+		// Otherwise expose may still be on going (e.g. waiting for the target
+		// PVC to be consumed).
+		pvc, pvcErr := e.kubeClient.CoreV1().PersistentVolumeClaims(ownerObject.Namespace).Get(ctx, ownerObject.Name, metav1.GetOptions{})
+		if pvcErr != nil {
+			if !apierrors.IsNotFound(pvcErr) {
+				curLog.WithError(pvcErr).Warnf("error to peek restore pvc %s", ownerObject.Name)
+			}
+			return nil
+		}
+
+		return fmt.Errorf("%w: restore pod %s/%s is not found while restore PVC %s exists", ErrHostingPodGone, ownerObject.Namespace, restorePodName, pvc.Name)
 	}
 
 	if err != nil {
 		curLog.WithError(err).Warnf("error to peek restore pod %s", restorePodName)
 		return nil
+	}
+
+	if pod.DeletionTimestamp != nil {
+		return fmt.Errorf("%w: restore pod %s/%s is being deleted", ErrHostingPodGone, pod.Namespace, pod.Name)
 	}
 
 	if podFailed, message := kube.IsPodUnrecoverable(pod, curLog); podFailed {

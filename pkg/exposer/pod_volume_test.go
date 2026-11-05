@@ -496,6 +496,15 @@ func TestPodVolumePeekExpose(t *testing.T) {
 		},
 	}
 
+	backupPodDeleting := &corev1api.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         backup.Namespace,
+			Name:              backup.Name,
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"fake-finalizer"},
+		},
+	}
+
 	scheme := runtime.NewScheme()
 	corev1api.AddToScheme(scheme)
 
@@ -504,10 +513,22 @@ func TestPodVolumePeekExpose(t *testing.T) {
 		kubeClientObj []runtime.Object
 		ownerBackup   *velerov1.Backup
 		err           string
+		podGone       bool
 	}{
 		{
 			name:        "backup pod is not found",
 			ownerBackup: backup,
+			err:         "data mover pod was deleted or evicted while preparing: hosting pod velero/fake-backup is not found",
+			podGone:     true,
+		},
+		{
+			name:        "backup pod is being deleted",
+			ownerBackup: backup,
+			kubeClientObj: []runtime.Object{
+				backupPodDeleting,
+			},
+			err:     "data mover pod was deleted or evicted while preparing: hosting pod velero/fake-backup is being deleted",
+			podGone: true,
 		},
 		{
 			name:        "pod is unrecoverable",
@@ -548,10 +569,11 @@ func TestPodVolumePeekExpose(t *testing.T) {
 
 			err := exposer.PeekExposed(t.Context(), ownerObject)
 			if test.err == "" {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
-				assert.EqualError(t, err, test.err)
+				require.EqualError(t, err, test.err)
 			}
+			assert.Equal(t, test.podGone, errors.Is(err, ErrHostingPodGone))
 		})
 	}
 }

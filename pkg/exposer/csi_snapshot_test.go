@@ -1317,6 +1317,31 @@ func TestPeekExpose(t *testing.T) {
 		},
 	}
 
+	backupPodDeleting := &corev1api.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         backup.Namespace,
+			Name:              backup.Name,
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"fake-finalizer"},
+		},
+	}
+
+	backupPVCOld := &corev1api.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         backup.Namespace,
+			Name:              backup.Name,
+			CreationTimestamp: metav1.Time{Time: time.Now().Add(-HostingPodGoneGracePeriod - time.Minute)},
+		},
+	}
+
+	backupPVCNew := &corev1api.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         backup.Namespace,
+			Name:              backup.Name,
+			CreationTimestamp: metav1.Time{Time: time.Now()},
+		},
+	}
+
 	scheme := runtime.NewScheme()
 	corev1api.AddToScheme(scheme)
 
@@ -1325,10 +1350,37 @@ func TestPeekExpose(t *testing.T) {
 		kubeClientObj []runtime.Object
 		ownerBackup   *velerov1.Backup
 		err           string
+		podGone       bool
 	}{
 		{
 			name:        "backup pod is not found",
 			ownerBackup: backup,
+		},
+		{
+			name:        "backup pod is not found and backup pvc is just created",
+			ownerBackup: backup,
+			kubeClientObj: []runtime.Object{
+				backupPVCNew,
+			},
+		},
+		{
+			name:        "backup pod is not found after backup pvc is created",
+			ownerBackup: backup,
+			kubeClientObj: []runtime.Object{
+				backupPVCOld,
+			},
+			err:     "data mover pod was deleted or evicted while preparing: backup pod velero/fake-backup is not found while backup PVC fake-backup exists",
+			podGone: true,
+		},
+		{
+			name:        "backup pod is being deleted",
+			ownerBackup: backup,
+			kubeClientObj: []runtime.Object{
+				backupPodDeleting,
+				backupPVCNew,
+			},
+			err:     "data mover pod was deleted or evicted while preparing: backup pod velero/fake-backup is being deleted",
+			podGone: true,
 		},
 		{
 			name:        "pod is unrecoverable",
@@ -1369,10 +1421,11 @@ func TestPeekExpose(t *testing.T) {
 
 			err := exposer.PeekExposed(t.Context(), ownerObject)
 			if test.err == "" {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
-				assert.EqualError(t, err, test.err)
+				require.EqualError(t, err, test.err)
 			}
+			assert.Equal(t, test.podGone, errors.Is(err, ErrHostingPodGone))
 		})
 	}
 }

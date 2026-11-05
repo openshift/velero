@@ -654,15 +654,50 @@ func TestRestorePeekExpose(t *testing.T) {
 		},
 	}
 
+	restorePodDeleting := &corev1api.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:         restore.Namespace,
+			Name:              restore.Name,
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"fake-finalizer"},
+		},
+	}
+
+	restorePVC := &corev1api.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: restore.Namespace,
+			Name:      restore.Name,
+		},
+	}
+
 	tests := []struct {
 		name          string
 		kubeClientObj []runtime.Object
 		ownerRestore  *velerov1.Restore
 		err           string
+		podGone       bool
 	}{
 		{
 			name:         "restore pod is not found",
 			ownerRestore: restore,
+		},
+		{
+			name:         "restore pod is not found after restore pvc is created",
+			ownerRestore: restore,
+			kubeClientObj: []runtime.Object{
+				restorePVC,
+			},
+			err:     "data mover pod was deleted or evicted while preparing: restore pod velero/fake-restore is not found while restore PVC fake-restore exists",
+			podGone: true,
+		},
+		{
+			name:         "restore pod is being deleted",
+			ownerRestore: restore,
+			kubeClientObj: []runtime.Object{
+				restorePodDeleting,
+			},
+			err:     "data mover pod was deleted or evicted while preparing: restore pod velero/fake-restore is being deleted",
+			podGone: true,
 		},
 		{
 			name:         "pod is unrecoverable",
@@ -703,10 +738,11 @@ func TestRestorePeekExpose(t *testing.T) {
 
 			err := exposer.PeekExposed(t.Context(), ownerObject)
 			if test.err == "" {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
-				assert.EqualError(t, err, test.err)
+				require.EqualError(t, err, test.err)
 			}
+			assert.Equal(t, test.podGone, errors.Is(err, ErrHostingPodGone))
 		})
 	}
 }

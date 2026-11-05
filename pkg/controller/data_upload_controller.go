@@ -207,6 +207,14 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	} else {
 		delete(r.cancelledDataUpload, du.Name)
 
+		// the data path is released by the data path callbacks, but it is still tracked if the CR came to the final
+		// state through another path, e.g., force-canceled by another node after the cancel timeout. Release it,
+		// otherwise the data path concurrency slot of this node is leaked.
+		if r.dataPathMgr.GetAsyncBR(du.Name) != nil {
+			log.Warnf("Releasing data path of DataUpload %s in final phase %s, it was not released by the data path callbacks", du.Name, du.Status.Phase)
+			r.closeDataPath(ctx, du.Name)
+		}
+
 		// put the finalizer remove action here for all cr will goes to the final status, we could check finalizer and do remove action in final status
 		// instead of intermediate state.
 		// remove finalizer no matter whether the cr is being deleted or not for it is no longer needed when internal resources are all cleaned up
@@ -298,7 +306,10 @@ func (r *DataUploadReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		return ctrl.Result{}, nil
 	} else if du.Status.Phase == velerov2alpha1api.DataUploadPhaseAccepted {
-		if peekErr := ep.PeekExposed(ctx, getOwnerObject(du)); peekErr != nil {
+		// A data mover pod that is gone after expose is reported right away instead of
+		// waiting for the prepare timeout, but not before the grace period that
+		// covers the window between Accepted and the pod creation.
+		if peekErr := exposer.IgnoreHostingPodGoneInGracePeriod(ep.PeekExposed(ctx, getOwnerObject(du)), du.Status.AcceptedTimestamp); peekErr != nil {
 			log.Errorf("Cancel du %s/%s because of expose error %s", du.Namespace, du.Name, peekErr)
 
 			diags := strings.Split(ep.DiagnoseExpose(ctx, getOwnerObject(du)), "\n")

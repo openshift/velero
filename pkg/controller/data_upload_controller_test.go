@@ -519,6 +519,23 @@ func TestReconcile(t *testing.T) {
 			expected: dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceled).Finalizers([]string{DataUploadDownloadFinalizer}).Phase(velerov2alpha1api.DataUploadPhaseCanceled).Message("found a du velero/dataupload-1 with expose error: fake-peak-error. mark it as cancel").Result(),
 		},
 		{
+			name:     "backup pod gone on accepted after grace period",
+			du:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseAccepted).SnapshotType(fakeSnapshotType).Finalizers([]string{DataUploadDownloadFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			peekErr:  fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected: dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceled).Finalizers([]string{DataUploadDownloadFinalizer}).Message("found a du velero/dataupload-1 with expose error: data mover pod was deleted or evicted while preparing: fake-detail. mark it as cancel").Result(),
+		},
+		{
+			name:     "backup pod not created yet on accepted in grace period",
+			du:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseAccepted).SnapshotType(fakeSnapshotType).Finalizers([]string{DataUploadDownloadFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now()}).Result(),
+			peekErr:  fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected: dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
+		},
+		{
+			name:     "backup pod exists on accepted",
+			du:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseAccepted).SnapshotType(fakeSnapshotType).Finalizers([]string{DataUploadDownloadFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			expected: dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseAccepted).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
+		},
+		{
 			name:     "cancel on prepared",
 			du:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhasePrepared).Finalizers([]string{DataUploadDownloadFinalizer}).Node("test-node").Cancel(true).Result(),
 			expected: dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceled).Finalizers([]string{DataUploadDownloadFinalizer}).Cancel(true).Phase(velerov2alpha1api.DataUploadPhaseCanceled).Result(),
@@ -609,6 +626,18 @@ func TestReconcile(t *testing.T) {
 			expected:           dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceling).Cancel(true).Finalizers([]string{DataUploadDownloadFinalizer}).Result(),
 			expectDataPath:     true,
 			expectCancelRecord: true,
+		},
+		{
+			name:           "release data path of du canceled by another node",
+			du:             dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceled).Cancel(true).Finalizers([]string{DataUploadDownloadFinalizer}).Node("test-node").Result(),
+			needCreateFSBR: true,
+			expected:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseCanceled).Cancel(true).Result(),
+		},
+		{
+			name:           "release data path of du in terminal state",
+			du:             dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseFailed).Node("test-node").Result(),
+			needCreateFSBR: true,
+			expected:       dataUploadBuilder().Phase(velerov2alpha1api.DataUploadPhaseFailed).Result(),
 		},
 	}
 

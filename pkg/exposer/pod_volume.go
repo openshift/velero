@@ -268,12 +268,20 @@ func (e *podVolumeExposer) PeekExposed(ctx context.Context, ownerObject corev1ap
 
 	pod, err := e.kubeClient.CoreV1().Pods(ownerObject.Namespace).Get(ctx, hostingPodName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil
+		// Expose creates the hosting pod without waiting on anything, so there is
+		// no expose object to check. The caller tolerates this error for
+		// HostingPodGoneGracePeriod after the CR is accepted, see
+		// IgnoreHostingPodGoneInGracePeriod.
+		return fmt.Errorf("%w: hosting pod %s/%s is not found", ErrHostingPodGone, ownerObject.Namespace, hostingPodName)
 	}
 
 	if err != nil {
 		curLog.WithError(err).Warnf("error to peek hosting pod %s", hostingPodName)
 		return nil
+	}
+
+	if pod.DeletionTimestamp != nil {
+		return fmt.Errorf("%w: hosting pod %s/%s is being deleted", ErrHostingPodGone, pod.Namespace, pod.Name)
 	}
 
 	if podFailed, message := kube.IsPodUnrecoverable(pod, curLog); podFailed {

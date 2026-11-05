@@ -193,6 +193,7 @@ spec:
                                     enum:
                                     - Continue
                                     - Fail
+                                    - FailBlock
                                     type: string
                                   waitForReady:
                                     description: WaitForReady ensures command will

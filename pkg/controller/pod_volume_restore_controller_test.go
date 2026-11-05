@@ -677,6 +677,8 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 		isGetExposeErr           bool
 		isGetExposeNil           bool
 		isPeekExposeErr          bool
+		mockPeek                 bool
+		peekExposeErr            error
 		isNilExposer             bool
 		notNilExpose             bool
 		notMockCleanUp           bool
@@ -825,7 +827,30 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 		{
 			name:     "prepare timeout on accepted",
 			pvr:      builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-time.Minute * 30)}).Result(),
+			mockPeek: true,
 			expected: builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseFailed).Finalizers([]string{PodVolumeFinalizer}).Phase(velerov1api.PodVolumeRestorePhaseFailed).Message("timeout on preparing PVR").Result(),
+		},
+		{
+			name:          "hosting pod gone on accepted after grace period",
+			pvr:           builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			mockPeek:      true,
+			peekExposeErr: fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			expected:      builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseCanceled).Finalizers([]string{PodVolumeFinalizer}).Message("found a PVR velero/pvr-1 with expose error: data mover pod was deleted or evicted while preparing: fake-detail. mark it as cancel").Result(),
+		},
+		{
+			name:           "hosting pod not created yet on accepted in grace period",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now()}).Result(),
+			mockPeek:       true,
+			peekExposeErr:  fmt.Errorf("%w: fake-detail", exposer.ErrHostingPodGone),
+			notMockCleanUp: true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Result(),
+		},
+		{
+			name:           "hosting pod exists on accepted",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Labels(map[string]string{exposer.ExposeOnGoingLabel: "true"}).AcceptedTimestamp(&metav1.Time{Time: time.Now().Add(-exposer.HostingPodGoneGracePeriod - time.Minute)}).Result(),
+			mockPeek:       true,
+			notMockCleanUp: true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseAccepted).Finalizers([]string{PodVolumeFinalizer}).Result(),
 		},
 		{
 			name:            "peek error on accepted",
@@ -935,6 +960,20 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 			expectDataPath:     true,
 			expectCancelRecord: true,
 		},
+		{
+			name:           "release data path of pvr canceled by another node",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseCanceled).Cancel(true).Finalizers([]string{PodVolumeFinalizer}).Node("test-node").Result(),
+			needCreateFSBR: true,
+			mockClose:      true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseCanceled).Cancel(true).Result(),
+		},
+		{
+			name:           "release data path of pvr in terminal state",
+			pvr:            builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseFailed).Node("test-node").Result(),
+			needCreateFSBR: true,
+			mockClose:      true,
+			expected:       builder.ForPodVolumeRestore(velerov1api.DefaultNamespace, pvrName).Phase(velerov1api.PodVolumeRestorePhaseFailed).Result(),
+		},
 	}
 
 	for _, test := range tests {
@@ -1002,7 +1041,7 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 				return asyncBR
 			}
 
-			if test.mockExposeErr != nil || test.isGetExposeErr || test.isGetExposeNil || test.isPeekExposeErr || test.isNilExposer || test.notNilExpose {
+			if test.mockExposeErr != nil || test.isGetExposeErr || test.isGetExposeNil || test.isPeekExposeErr || test.mockPeek || test.isNilExposer || test.notNilExpose {
 				if test.isNilExposer {
 					r.exposer = nil
 				} else {
@@ -1025,6 +1064,9 @@ func TestPodVolumeRestoreReconcile(t *testing.T) {
 						} else if test.isPeekExposeErr {
 							ep.On("PeekExposed", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("fake-peek-error"))
 							ep.On("DiagnoseExpose", mock.Anything, mock.Anything).Return("")
+						} else if test.mockPeek {
+							ep.On("PeekExposed", mock.Anything, mock.Anything).Return(test.peekExposeErr)
+							ep.On("DiagnoseExpose", mock.Anything, mock.Anything).Return("").Maybe()
 						}
 
 						if !test.notMockCleanUp {
