@@ -5489,7 +5489,7 @@ func TestBackupNamespaces(t *testing.T) {
 			name: "namespace explicitly included is backed up even when nothing inside matches LabelSelector",
 			skip: "Downstream-only divergence: this branch's NamespaceIncludesExcludes.IncludeEverything() " +
 				"additionally reports true when the includes list equals the full set of active namespaces " +
-				"(openshift/velero 8ac8f49b5c, needed so restore still recognises wildcard-expanded '*' as " +
+				"(openshift/velero 8ac8f49b5c, needed so restore still recognizes wildcard-expanded '*' as " +
 				"include-everything). The test harness's client lists only the included namespace, so includes == " +
 				"active here, nsTracker then applies its include-everything + LabelSelector rule " +
 				"(velero-io/velero#7105) and drops the Namespace object. Only reachable when the include list " +
