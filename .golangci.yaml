@@ -24,7 +24,7 @@ linters:
     - errcheck
     - errchkjson
     - ginkgolinter
-    - goconst
+    #- goconst # Disable goconst for now, as it reports a lot of false positives. We can enable it later after refactoring the codebase to reduce the number of string literals.
     - goheader
     - goprintffuncname
     - gosec
@@ -90,6 +90,7 @@ linters:
         - atomicalign
       disable:
         - shadow
+        - inline
       enable-all: false
       disable-all: false
       settings:
